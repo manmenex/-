@@ -3,7 +3,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
-import { MoneyInput, Stepper, TextField } from '../components/Inputs';
+import { MoneyInput, QuantityInput, Stepper, TextField, noAutofill } from '../components/Inputs';
 import { Sheet } from '../components/Sheet';
 import { formatBaht, sumMoney, sumShares } from '../core/money';
 import { lineTotalOf } from '../core/splitItems';
@@ -268,6 +268,7 @@ function StepHeader({ bill, patch }: { bill: Bill; patch: (changes: Partial<Bill
           value={bill.title}
           placeholder="เช่น Bekku Tonkatsu"
           autoFocus
+          {...noAutofill}
           onChange={(event) => patch({ title: event.target.value })}
         />
       </label>
@@ -355,6 +356,7 @@ function StepItems({
           value={name}
           placeholder="ชื่อรายการ"
           autoFocus
+          {...noAutofill}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') add();
@@ -364,13 +366,7 @@ function StepItems({
           <MoneyInput value={price} onChange={setPrice} onEnter={add} ariaLabel="ราคา" />
         </div>
         <div className="w-16">
-          <input
-            className="field tnum text-right"
-            inputMode="numeric"
-            aria-label="จำนวน"
-            value={quantity}
-            onChange={(event) => setQuantity(Math.max(1, Number(event.target.value.replace(/\D/g, '')) || 1))}
-          />
+          <QuantityInput value={quantity} onChange={setQuantity} />
         </div>
         <button
           type="button"
@@ -690,6 +686,8 @@ function AdjustmentField({
             inputMode="decimal"
             aria-label={`${label} เป็นเปอร์เซ็นต์`}
             value={value.value || ''}
+            {...noAutofill}
+            onFocus={(event) => event.currentTarget.select()}
             onChange={(event) =>
               onChange({ ...value, value: Number(event.target.value.replace(/[^\d.]/g, '')) || 0 })
             }

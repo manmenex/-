@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { Sheet } from '../components/Sheet';
+import { noAutofill } from '../components/Inputs';
 import { selectTripMembers, useTripStore } from '../store/tripStore';
 
 export function SettingsScreen() {
@@ -54,6 +55,7 @@ export function SettingsScreen() {
           <input
             className="field text-[17px]"
             value={trip.name}
+            {...noAutofill}
             onChange={(event) => useTripStore.getState().renameTrip(trip.id, event.target.value)}
           />
 
@@ -65,6 +67,7 @@ export function SettingsScreen() {
                 <input
                   className="field flex-1 border-0 py-1"
                   value={member.name}
+                  {...noAutofill}
                   onChange={(event) =>
                     useTripStore.getState().renameMember(member.id, event.target.value)
                   }
@@ -88,6 +91,7 @@ export function SettingsScreen() {
               className="field flex-1"
               value={newMember}
               placeholder="เพิ่มคนใหม่"
+              {...noAutofill}
               onChange={(event) => setNewMember(event.target.value)}
             />
             <button

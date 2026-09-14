@@ -3,6 +3,18 @@ import { formatBaht, parseBaht } from '../core/money';
 import type { Money } from '../core/types';
 
 /**
+ * ปิดตัวช่วยของคีย์บอร์ดในทุกช่องกรอก
+ * บนมือถือ iOS จะเดาว่าช่องที่มีคำว่า "ชื่อ" เป็นช่องกรอกชื่อคน
+ * แล้วเด้งแถบ AutoFill Contact ขึ้นมาบังจอ ซึ่งไม่มีประโยชน์กับการกรอกบิล
+ */
+export const noAutofill = {
+  autoComplete: 'off',
+  autoCorrect: 'off',
+  autoCapitalize: 'off',
+  spellCheck: false,
+} as const;
+
+/**
  * ช่องกรอกเงิน — เปิด numeric keypad บนมือถือ
  * เก็บค่าเป็นข้อความระหว่างพิมพ์ แล้วแปลงเป็นสตางค์ทันทีที่อ่านได้
  */
@@ -38,6 +50,7 @@ export const MoneyInput = forwardRef<
       inputMode="decimal"
       enterKeyHint="done"
       aria-label={ariaLabel}
+      {...noAutofill}
       className={`field tnum text-right ${className}`}
       placeholder={placeholder}
       value={text}
@@ -82,9 +95,70 @@ export function TextField({
         className="field"
         value={value}
         placeholder={placeholder}
+        {...noAutofill}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
+  );
+}
+
+/**
+ * ช่องกรอกจำนวนชิ้น
+ *
+ * เก็บเป็นข้อความระหว่างพิมพ์เพื่อให้ช่องว่างได้ชั่วคราว
+ * ถ้าบังคับค่าขั้นต่ำเป็น 1 ทุกครั้งที่พิมพ์ พอผู้ใช้คลุมแล้วลบ ช่องจะเด้งกลับเป็น "1" ทันที
+ * เลขที่พิมพ์ใหม่จะไปต่อท้าย/ต่อหน้าแทนที่จะแทนที่ — แก้เลขไม่ได้เลย
+ * ค่าจะถูกปรับให้อย่างน้อย 1 ตอนออกจากช่องเท่านั้น
+ */
+export function QuantityInput({
+  value,
+  onChange,
+  ariaLabel = 'จำนวน',
+  className = '',
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  const [text, setText] = useState(String(value));
+  const lastEmitted = useRef(value);
+
+  useEffect(() => {
+    if (value !== lastEmitted.current) {
+      setText(String(value));
+      lastEmitted.current = value;
+    }
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      enterKeyHint="done"
+      aria-label={ariaLabel}
+      className={`field tnum text-right ${className}`}
+      value={text}
+      {...noAutofill}
+      // แตะเข้ามาแล้วคลุมทั้งหมดให้เลย จะได้พิมพ์ทับได้ทันที
+      onFocus={(event) => event.currentTarget.select()}
+      onChange={(event) => {
+        const next = event.target.value.replace(/\D/g, '').slice(0, 4);
+        setText(next);
+        const parsed = Number(next);
+        if (next !== '' && parsed >= 1) {
+          lastEmitted.current = parsed;
+          onChange(parsed);
+        }
+      }}
+      onBlur={() => {
+        const parsed = Number(text);
+        const final = text === '' || parsed < 1 ? 1 : parsed;
+        setText(String(final));
+        lastEmitted.current = final;
+        onChange(final);
+      }}
+    />
   );
 }
 

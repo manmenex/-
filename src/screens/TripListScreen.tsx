@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Sheet } from '../components/Sheet';
+import { noAutofill } from '../components/Inputs';
 import { computeOutstanding } from '../core/settle';
 import { useTripStore, type TripState } from '../store/tripStore';
 
@@ -133,8 +134,9 @@ function NewTripSheet({
           className="field text-[17px]"
           value={name}
           placeholder="เช่น ทริป Square Enix"
-          onChange={(event) => setName(event.target.value)}
           autoFocus
+          {...noAutofill}
+          onChange={(event) => setName(event.target.value)}
         />
       </label>
 
@@ -146,6 +148,7 @@ function NewTripSheet({
             className="field"
             value={member}
             placeholder={`คนที่ ${index + 1}`}
+            {...noAutofill}
             onChange={(event) => update(index, event.target.value)}
           />
         ))}
