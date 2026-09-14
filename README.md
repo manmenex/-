@@ -1,5 +1,7 @@
 # หารบิลทริป — Trip Expense Splitter
 
+**เปิดใช้งาน: https://manmenex.github.io/-/**
+
 แอปมือถือ (PWA) สำหรับแบ่งค่าใช้จ่ายกลุ่มในทริป และติดตามว่าใครต้องคืนเงินใครเท่าไร
 กรอกรายการเองทั้งหมด ไม่มี AI ไม่มี OCR ไม่อ่านภาพบิล ระบบทำหน้าที่คำนวณ แบ่ง หักลบ และติดตามเท่านั้น
 
@@ -32,6 +34,16 @@ src/
   components/           Amount (tabular numerals), Avatar, Sheet, AppBar, MoneyInput, SettleSheet
   lib/                  format วันที่/หมวด/สี, ข้อความสรุปสำหรับ copy เข้ากลุ่มไลน์
 ```
+
+## Deploy
+
+push ขึ้น branch แล้ว GitHub Actions จะ build และ deploy ขึ้น GitHub Pages ให้เอง
+(`.github/workflows/deploy.yml`) โดยจะรัน test กับ typecheck ก่อน ถ้าเลขผิดจะไม่ deploy
+
+ครั้งแรกต้องเปิด Pages ในหน้า repo ก่อน: **Settings → Pages → Source: GitHub Actions**
+
+`base: './'` กับ HashRouter ทำให้แอปทำงานได้ทั้งตอนเปิดจาก subpath
+(`/-/` ตามชื่อ repo) และตอนเปิดจากไฟล์ในเครื่อง
 
 ## คำสั่ง
 
