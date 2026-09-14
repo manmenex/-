@@ -1,0 +1,109 @@
+import type { Bill, Member, Settlement, Trip, Waiver } from '../core/types';
+
+/**
+ * export.ts — backup / ย้ายเครื่อง ด้วยไฟล์ JSON
+ * ต้อง export แล้ว import กลับได้เหมือนเดิมทุกตัวอักษร
+ */
+
+export const EXPORT_VERSION = 1;
+
+export interface AppData {
+  trips: Trip[];
+  members: Member[];
+  bills: Bill[];
+  settlements: Settlement[];
+  waivers: Waiver[];
+}
+
+export interface ExportFile extends AppData {
+  version: number;
+  exportedAt: string;
+}
+
+export function serialize(data: AppData, exportedAt = new Date().toISOString()): string {
+  const payload: ExportFile = {
+    version: EXPORT_VERSION,
+    exportedAt,
+    trips: data.trips,
+    members: data.members,
+    bills: data.bills,
+    settlements: data.settlements,
+    waivers: data.waivers,
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+export interface ParseResult {
+  data?: AppData;
+  error?: string;
+}
+
+const isArray = (value: unknown): value is unknown[] => Array.isArray(value);
+
+export function parse(json: string): ParseResult {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return { error: 'ไฟล์นี้ไม่ใช่ JSON ที่อ่านได้ — ลองเลือกไฟล์ที่ export จากแอปนี้' };
+  }
+
+  if (typeof raw !== 'object' || raw === null) {
+    return { error: 'โครงสร้างไฟล์ไม่ถูกต้อง' };
+  }
+
+  const file = raw as Partial<ExportFile>;
+  if (typeof file.version !== 'number') {
+    return { error: 'ไฟล์นี้ไม่มีเลขเวอร์ชัน — น่าจะไม่ได้ export จากแอปนี้' };
+  }
+  if (file.version > EXPORT_VERSION) {
+    return {
+      error: `ไฟล์นี้มาจากแอปเวอร์ชันใหม่กว่า (v${file.version}) — อัปเดตแอปก่อนแล้วลองใหม่`,
+    };
+  }
+
+  for (const key of ['trips', 'members', 'bills', 'settlements', 'waivers'] as const) {
+    if (!isArray(file[key])) {
+      return { error: `ไฟล์นี้ขาดข้อมูลส่วน "${key}"` };
+    }
+  }
+
+  const bills = file.bills as Bill[];
+  for (const bill of bills) {
+    if (!Number.isInteger(bill.statedTotal)) {
+      return { error: `บิล "${bill.title ?? '-'}" มียอดที่ไม่ใช่จำนวนเต็มสตางค์` };
+    }
+    for (const item of bill.items ?? []) {
+      if (!Number.isInteger(item.unitPrice)) {
+        return { error: `รายการ "${item.name ?? '-'}" มีราคาที่ไม่ใช่จำนวนเต็มสตางค์` };
+      }
+    }
+  }
+
+  return {
+    data: {
+      trips: file.trips as Trip[],
+      members: file.members as Member[],
+      bills,
+      settlements: file.settlements as Settlement[],
+      waivers: file.waivers as Waiver[],
+    },
+  };
+}
+
+/** รวมข้อมูลที่ import เข้ากับของเดิม โดยของที่ id ซ้ำให้ของใหม่ทับ */
+export function mergeData(current: AppData, incoming: AppData): AppData {
+  const mergeList = <T extends { id: string }>(a: T[], b: T[]): T[] => {
+    const byId = new Map<string, T>();
+    for (const entry of a) byId.set(entry.id, entry);
+    for (const entry of b) byId.set(entry.id, entry);
+    return [...byId.values()];
+  };
+  return {
+    trips: mergeList(current.trips, incoming.trips),
+    members: mergeList(current.members, incoming.members),
+    bills: mergeList(current.bills, incoming.bills),
+    settlements: mergeList(current.settlements, incoming.settlements),
+    waivers: mergeList(current.waivers, incoming.waivers),
+  };
+}
