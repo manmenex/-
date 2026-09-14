@@ -197,7 +197,7 @@ export function MemberDetailScreen() {
         )}
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] border-t border-rule bg-paper/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+      <div className="dock fixed inset-x-0 z-30 mx-auto max-w-[430px] border-t border-rule bg-paper/95 px-3 pt-3 backdrop-blur">
         <button
           type="button"
           className="btn-primary w-full"

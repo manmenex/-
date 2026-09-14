@@ -207,7 +207,7 @@ export function BillEditorScreen() {
         )}
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto flex max-w-[430px] items-center gap-2 border-t border-rule bg-paper/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+      <div className="dock fixed inset-x-0 z-30 mx-auto flex max-w-[430px] items-center gap-2 border-t border-rule bg-paper/95 px-3 pt-3 backdrop-blur">
         <span className="min-w-0 flex-1 pl-1">
           <span className="block text-2xs text-ink-soft">ยอดบนบิล</span>
           <Amount value={bill.statedTotal} size="lg" />

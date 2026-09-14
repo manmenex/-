@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useTripStore } from './store/tripStore';
+import { useKeyboardInset } from './lib/useKeyboardInset';
 import { TripListScreen } from './screens/TripListScreen';
 import { TripDashboardScreen } from './screens/TripDashboardScreen';
 import { BillEditorScreen } from './screens/BillEditorScreen';
@@ -9,6 +10,9 @@ import { SettingsScreen } from './screens/SettingsScreen';
 
 export default function App() {
   const hydrated = useTripStore((state) => state.hydrated);
+
+  // แถบปุ่มล่างต้องยกตามแป้นพิมพ์ ไม่งั้นโดนบังตอนกรอกบิลบนมือถือ
+  useKeyboardInset();
 
   if (!hydrated) {
     return (

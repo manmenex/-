@@ -28,7 +28,7 @@ export function Sheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+    <div className="sheet-dock fixed inset-x-0 top-0 z-50 flex items-end justify-center">
       <button
         type="button"
         aria-label="ปิด"
@@ -39,8 +39,8 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="sheet-enter relative max-h-[88vh] w-full max-w-[430px] overflow-y-auto
-                   rounded-t-2xl border-t border-rule bg-paper pb-[env(safe-area-inset-bottom)]"
+        className="sheet-enter safe-pb relative max-h-[88%] w-full max-w-[430px] overflow-y-auto
+                   rounded-t-2xl border-t border-rule bg-paper"
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-rule bg-paper px-4 py-3">
           <h2 className="text-[15px] font-semibold">{title}</h2>

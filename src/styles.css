@@ -4,6 +4,11 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* ความสูงที่แป้นพิมพ์กินจอไป — useKeyboardInset เป็นคนอัปเดตค่านี้ */
+    --keyboard-inset: 0px;
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
     background: theme('colors.paper');
@@ -37,6 +42,29 @@
 }
 
 @layer components {
+  /**
+   * แถบปุ่มที่ปักอยู่ขอบล่างจอ
+   * ยกขึ้นตามแป้นพิมพ์ และตอนแป้นพิมพ์ขึ้นมาก็ไม่ต้องเผื่อขอบ home indicator
+   * เพราะแป้นพิมพ์บังตรงนั้นอยู่แล้ว
+   */
+  .dock {
+    bottom: var(--keyboard-inset, 0px);
+    padding-bottom: calc(
+      0.75rem + max(0px, env(safe-area-inset-bottom) - var(--keyboard-inset, 0px))
+    );
+    transition: bottom 160ms ease-out;
+  }
+
+  /* ตัว sheet ก็ต้องหลบแป้นพิมพ์เหมือนกัน ไม่งั้นช่องกรอกในนั้นโดนบัง */
+  .sheet-dock {
+    bottom: var(--keyboard-inset, 0px);
+    transition: bottom 160ms ease-out;
+  }
+
+  .safe-pb {
+    padding-bottom: max(0px, calc(env(safe-area-inset-bottom) - var(--keyboard-inset, 0px)));
+  }
+
   /* เส้นประคั่นก่อนยอดรวม แบบใบเสร็จ */
   .rule-dashed {
     border-top: 1px dashed theme('colors.rule');
@@ -100,5 +128,10 @@
   .sheet-enter,
   .row-leave {
     animation: none;
+  }
+
+  .dock,
+  .sheet-dock {
+    transition: none;
   }
 }
