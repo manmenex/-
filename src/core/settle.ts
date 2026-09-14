@@ -112,7 +112,9 @@ export function computeOutstanding(input: OutstandingInput): Outstanding {
       continue;
     }
 
-    const detailed = computeBillDebtsDetailed(bill, computation.shares);
+    const detailed = computeBillDebtsDetailed(bill, computation.shares, {
+      homeTotal: computation.homeTotal,
+    });
     for (const issue of detailed.issues) billProblems.push(issue.message);
     if (detailed.issues.some((issue) => issue.code === 'payersMismatch')) {
       problems.push(`${bill.title}: ${detailed.issues[0].message}`);
@@ -182,7 +184,10 @@ export function computeOutstanding(input: OutstandingInput): Outstanding {
     }));
 
   const totals: TripTotals = {
-    tripTotal: sumMoney(bills.map((bill) => bill.statedTotal)),
+    // ต้องใช้ยอดที่แปลงเป็นสกุลหลักแล้ว ไม่งั้นจะเอาเยนไปบวกกับบาท
+    tripTotal: sumMoney(
+      evaluations.map((entry) => (entry.skipped ? 0 : entry.computation.homeTotal)),
+    ),
     toCollect: sumMoney(
       perMember.map((m) => Math.max(0, m.net)),
     ),

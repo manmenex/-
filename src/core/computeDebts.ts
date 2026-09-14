@@ -1,4 +1,5 @@
-import { formatBaht, sumMoney } from './money';
+import { HOME_CURRENCY } from './currency';
+import { allocateTo, formatBaht, sumMoney } from './money';
 import type { Bill, Debt, Money } from './types';
 
 /**
@@ -63,11 +64,17 @@ export function greedyMatch(balances: Record<string, Money>): Debt[] {
   return debts;
 }
 
+export interface DebtOptions {
+  /** ยอดบิลในสกุลหลัก ใส่มาเมื่อบิลกรอกเป็นสกุลอื่น */
+  homeTotal?: Money;
+}
+
 export function computeBillDebtsDetailed(
   bill: Bill,
   shares: Record<string, Money>,
+  options: DebtOptions = {},
 ): BillDebtResult {
-  const paid = paidByMember(bill);
+  const localPaid = paidByMember(bill);
   const issues: DebtIssue[] = [];
 
   for (const payer of bill.payers) {
@@ -79,7 +86,7 @@ export function computeBillDebtsDetailed(
     }
   }
 
-  const totalPaid = sumMoney(Object.values(paid));
+  const totalPaid = sumMoney(Object.values(localPaid));
   if (totalPaid !== bill.statedTotal) {
     issues.push({
       code: 'payersMismatch',
@@ -94,6 +101,17 @@ export function computeBillDebtsDetailed(
       },
     });
   }
+
+  /**
+   * ยอดที่แต่ละคนจ่ายต้องอยู่สกุลเดียวกับ shares ถึงจะหักกันได้
+   * แปลงด้วยวิธีเดียวกับตอนแปลง shares: แปลงยอดรวมครั้งเดียวแล้วกระจายตามสัดส่วน
+   * ผลรวมที่จ่ายจึงยังเท่ากับยอดบิลในสกุลหลักเป๊ะ
+   */
+  const foreign = (bill.currency ?? HOME_CURRENCY) !== HOME_CURRENCY;
+  const paid =
+    foreign && options.homeTotal !== undefined && totalPaid === bill.statedTotal
+      ? allocateTo(options.homeTotal, localPaid)
+      : localPaid;
 
   const memberIds = new Set([...Object.keys(paid), ...Object.keys(shares)]);
   const net: Record<string, Money> = {};

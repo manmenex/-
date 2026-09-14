@@ -1,3 +1,4 @@
+import { HOME_CURRENCY, isUsableRate, toHome } from './currency';
 import { allocateTo, formatBaht, percentOf, sumShares } from './money';
 import { SplitError, splitAllItems, type ItemsBreakdown } from './splitItems';
 import type { Adjustment, Bill, Member, Money } from './types';
@@ -20,6 +21,7 @@ export interface BillIssue {
     | 'payersMismatch'
     | 'unknownMember'
     | 'negativeShare'
+    | 'missingRate'
     | 'noParticipants';
   message: string;
   itemId?: string;
@@ -57,7 +59,14 @@ export interface BillComputation {
   status: BillStatus;
   /** true เมื่อบันทึกบิลนี้ได้ */
   ok: boolean;
+  /** ยอดรายคนในสกุลหลัก (บาท) — ใช้คิดหนี้และแผนโอน */
   shares: Record<string, Money>;
+  /** ยอดรายคนในสกุลของบิล เท่ากับ shares ถ้าบิลเป็นสกุลหลักอยู่แล้ว */
+  localShares: Record<string, Money>;
+  /** statedTotal แปลงเป็นสกุลหลักแล้ว */
+  homeTotal: Money;
+  /** สกุลของบิลใบนี้ */
+  currency: string;
   audit: BillAudit;
   issues: BillIssue[];
 }
@@ -110,6 +119,9 @@ export function computeBillShares(
         status: 'invalid',
         ok: false,
         shares: {},
+        localShares: {},
+        homeTotal: 0,
+        currency: bill.currency ?? HOME_CURRENCY,
         issues: [{ code: 'itemSplit', message: error.message, itemId: error.itemId }],
         audit: emptyAudit(bill),
       };
@@ -227,7 +239,16 @@ export function computeBillShares(
           difference,
         },
       });
-      return { status: 'mismatch', ok: false, shares: running, audit, issues };
+      return {
+        status: 'mismatch',
+        ok: false,
+        shares: running,
+        localShares: running,
+        homeTotal: bill.statedTotal,
+        currency: bill.currency ?? HOME_CURRENCY,
+        audit,
+        issues,
+      };
     }
 
     const target = pickRoundingTarget(running, bill.roundingTargetId);
@@ -237,7 +258,16 @@ export function computeBillShares(
         message: `บิลนี้ยังไม่มีใครรับผิดชอบรายการ แต่ระบุยอด ${formatBaht(bill.statedTotal)}`,
         detail: { computed: computedTotal, statedTotal: bill.statedTotal, difference },
       });
-      return { status: 'mismatch', ok: false, shares: running, audit, issues };
+      return {
+        status: 'mismatch',
+        ok: false,
+        shares: running,
+        localShares: running,
+        homeTotal: bill.statedTotal,
+        currency: bill.currency ?? HOME_CURRENCY,
+        audit,
+        issues,
+      };
     }
 
     running = { ...running, [target]: running[target] + difference };
@@ -264,7 +294,44 @@ export function computeBillShares(
     }
   }
 
-  return { status, ok: true, shares: running, audit, issues };
+  const converted = convertShares(bill, running, issues);
+  return {
+    status,
+    ok: converted !== null,
+    shares: converted?.shares ?? running,
+    localShares: running,
+    homeTotal: converted?.homeTotal ?? bill.statedTotal,
+    currency: bill.currency ?? HOME_CURRENCY,
+    audit,
+    issues,
+  };
+}
+
+/**
+ * แปลงยอดรายคนเป็นสกุลหลัก
+ *
+ * ห้ามแปลงทีละคนแล้วเอามาบวกกัน เพราะการปัดเศษของแต่ละคนจะทำให้ผลรวมไม่ตรงกับ
+ * ยอดบิลที่แปลงแล้ว วิธีที่ถูกคือแปลงยอดรวมครั้งเดียว แล้วกระจายให้แต่ละคน
+ * ตามสัดส่วนยอดในสกุลเดิม ผลรวมจึงตรงเป๊ะเสมอเหมือนทุก step ก่อนหน้า
+ */
+function convertShares(
+  bill: Bill,
+  localShares: Record<string, Money>,
+  issues: BillIssue[],
+): { shares: Record<string, Money>; homeTotal: Money } | null {
+  const code = bill.currency ?? HOME_CURRENCY;
+  if (code === HOME_CURRENCY) {
+    return { shares: localShares, homeTotal: bill.statedTotal };
+  }
+  if (!isUsableRate(bill.exchangeRate)) {
+    issues.push({
+      code: 'missingRate',
+      message: `บิลนี้กรอกเป็นสกุล ${code} แต่ยังไม่ได้ใส่อัตราแลกเปลี่ยนเป็นบาท`,
+    });
+    return null;
+  }
+  const homeTotal = toHome(bill.statedTotal, bill.exchangeRate);
+  return { shares: allocateTo(homeTotal, localShares), homeTotal };
 }
 
 function applyDelta(

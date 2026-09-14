@@ -1,4 +1,4 @@
-import { formatBaht } from '../core/money';
+import { formatMoney } from '../core/currency';
 import type { Money } from '../core/types';
 
 type Tone = 'default' | 'owed' | 'settled' | 'muted';
@@ -24,17 +24,21 @@ export function Amount({
   tone = 'default',
   size = 'md',
   sign = false,
+  currency,
   className = '',
 }: {
   value: Money;
   tone?: Tone;
   size?: Size;
   sign?: boolean;
+  /** สกุลเงินของตัวเลขนี้ ไม่ใส่ = บาท */
+  currency?: string;
   className?: string;
 }) {
+  const text = formatMoney(value, currency);
   return (
     <span className={`tnum tabular-nums ${TONE[tone]} ${SIZE[size]} ${className}`}>
-      {formatBaht(value, { sign })}
+      {sign && value > 0 ? `+${text}` : text}
     </span>
   );
 }

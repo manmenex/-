@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
-import { formatBaht, parseBaht } from '../core/money';
+import { formatMoney, parseMoney } from '../core/currency';
 import type { Money } from '../core/types';
 
 /**
@@ -27,21 +27,31 @@ export const MoneyInput = forwardRef<
     className?: string;
     onEnter?: () => void;
     ariaLabel?: string;
+    /** สกุลเงินของช่องนี้ ไม่ใส่ = บาท มีผลกับจำนวนทศนิยมที่รับและที่แสดง */
+    currency?: string;
   }
->(function MoneyInput({ value, onChange, placeholder = '0.00', className = '', onEnter, ariaLabel }, ref) {
+>(function MoneyInput(
+  { value, onChange, placeholder, className = '', onEnter, ariaLabel, currency },
+  ref,
+) {
   /**
    * ระหว่างพิมพ์ปล่อยข้อความตามที่ผู้ใช้พิมพ์ ไม่จัดรูปแบบให้ caret กระโดด
    * พอออกจากช่องค่อยใส่คอมมา (parseBaht อ่านคอมมาได้อยู่แล้ว)
    */
-  const [text, setText] = useState(value === null ? '' : formatBaht(value));
+  const [text, setText] = useState(value === null ? '' : formatMoney(value, currency));
   const lastEmitted = useRef(value);
 
   useEffect(() => {
     if (value !== lastEmitted.current) {
-      setText(value === null ? '' : formatBaht(value));
+      setText(value === null ? '' : formatMoney(value, currency));
       lastEmitted.current = value;
     }
-  }, [value]);
+  }, [value, currency]);
+
+  // เปลี่ยนสกุลเงินแล้วต้องจัดรูปแบบใหม่ เช่น 1,500.00 บาท -> 1,500 เยน
+  useEffect(() => {
+    setText(lastEmitted.current === null ? '' : formatMoney(lastEmitted.current, currency));
+  }, [currency]);
 
   return (
     <input
@@ -52,18 +62,18 @@ export const MoneyInput = forwardRef<
       aria-label={ariaLabel}
       {...noAutofill}
       className={`field tnum text-right ${className}`}
-      placeholder={placeholder}
+      placeholder={placeholder ?? formatMoney(0, currency)}
       value={text}
       onChange={(event) => {
         const next = event.target.value.replace(/[^\d.,-]/g, '');
         setText(next);
-        const parsed = next.trim() === '' ? null : parseBaht(next);
+        const parsed = next.trim() === '' ? null : parseMoney(next, currency);
         lastEmitted.current = parsed;
         onChange(parsed);
       }}
       onBlur={() => {
-        const parsed = text.trim() === '' ? null : parseBaht(text);
-        if (parsed !== null) setText(formatBaht(parsed));
+        const parsed = text.trim() === '' ? null : parseMoney(text, currency);
+        if (parsed !== null) setText(formatMoney(parsed, currency));
         lastEmitted.current = parsed;
         onChange(parsed);
       }}

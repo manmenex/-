@@ -5,7 +5,16 @@ import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { MoneyInput, QuantityInput, Stepper, TextField, noAutofill } from '../components/Inputs';
 import { Sheet } from '../components/Sheet';
-import { formatBaht, sumMoney, sumShares } from '../core/money';
+import { sumMoney, sumShares } from '../core/money';
+import {
+  CURRENCIES,
+  HOME_CURRENCY,
+  currencyOf,
+  formatMoney,
+  isUsableRate,
+  toHome,
+  type ExchangeRate,
+} from '../core/currency';
 import { lineTotalOf } from '../core/splitItems';
 import { computeOutstanding } from '../core/settle';
 import { validateBill } from '../core/validate';
@@ -210,7 +219,12 @@ export function BillEditorScreen() {
       <div className="dock fixed inset-x-0 z-30 mx-auto flex max-w-[430px] items-center gap-2 border-t border-rule bg-paper/95 px-3 pt-3 backdrop-blur">
         <span className="min-w-0 flex-1 pl-1">
           <span className="block text-2xs text-ink-soft">ยอดบนบิล</span>
-          <Amount value={bill.statedTotal} size="lg" />
+          <Amount value={bill.statedTotal} size="lg" currency={bill.currency} />
+          {bill.currency && bill.currency !== HOME_CURRENCY && isUsableRate(bill.exchangeRate) && (
+            <span className="block text-2xs text-ink-soft">
+              ≈ {formatMoney(toHome(bill.statedTotal, bill.exchangeRate))} บาท
+            </span>
+          )}
         </span>
         {step < 6 ? (
           <button type="button" className="btn-primary min-w-[9rem]" onClick={goNext}>
@@ -293,6 +307,8 @@ function StepHeader({ bill, patch }: { bill: Bill; patch: (changes: Partial<Bill
         ))}
       </div>
 
+      <CurrencyPicker bill={bill} patch={patch} />
+
       <div className="mt-6">
         <TextField
           label="เลขที่บิล"
@@ -309,6 +325,84 @@ function StepHeader({ bill, patch }: { bill: Bill; patch: (changes: Partial<Bill
           placeholder="ไม่ใส่ก็ได้"
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * เลือกสกุลเงินของบิล
+ * ถ้าไม่ใช่บาท ต้องกรอกอัตราแลกเปลี่ยนด้วย ไม่งั้นบันทึกไม่ได้
+ * เก็บอัตราเป็นคู่จำนวนเงินจริง (เช่น 1,000 เยน = 235.00 บาท) ไม่ใช่ทศนิยมลอยๆ
+ * จะได้คำนวณกลับได้เป๊ะและกรอกตามที่เห็นบนป้ายได้เลย
+ */
+function CurrencyPicker({
+  bill,
+  patch,
+}: {
+  bill: Bill;
+  patch: (changes: Partial<Bill>) => void;
+}) {
+  const code = bill.currency ?? HOME_CURRENCY;
+  const foreign = code !== HOME_CURRENCY;
+  const rate: ExchangeRate = bill.exchangeRate ?? { from: 0, to: 0 };
+
+  const setCurrency = (next: string) => {
+    if (next === HOME_CURRENCY) {
+      patch({ currency: undefined, exchangeRate: undefined });
+      return;
+    }
+    patch({ currency: next, exchangeRate: bill.exchangeRate });
+  };
+
+  return (
+    <div className="mt-7">
+      <p className="text-2xs uppercase tracking-wide text-ink-soft">สกุลเงินที่จ่าย</p>
+      <div className="-mx-5 mt-2 flex gap-2 overflow-x-auto px-5 pb-1">
+        {Object.values(CURRENCIES).map((currency) => (
+          <button
+            key={currency.code}
+            type="button"
+            className={`shrink-0 border px-3 py-1.5 text-[13px] ${
+              code === currency.code ? 'border-ink bg-ink text-paper' : 'border-rule text-ink-soft'
+            }`}
+            onClick={() => setCurrency(currency.code)}
+          >
+            {currency.symbol} {currency.name}
+          </button>
+        ))}
+      </div>
+
+      {foreign && (
+        <div className="mt-4 rule-dashed pt-3">
+          <p className="text-[13px] font-medium">อัตราแลกเปลี่ยน</p>
+          <p className="text-2xs text-ink-faint">
+            กรอกตามที่เห็นบนป้ายได้เลย ระบบคิดหนี้เป็นบาทให้เอง
+          </p>
+          <div className="mt-2 flex items-end gap-2">
+            <div className="flex-1">
+              <MoneyInput
+                value={rate.from || null}
+                currency={code}
+                ariaLabel={`จำนวน${currencyOf(code).name}`}
+                onChange={(amount) => patch({ exchangeRate: { ...rate, from: amount ?? 0 } })}
+              />
+              <p className="mt-0.5 text-2xs text-ink-soft">{currencyOf(code).name}</p>
+            </div>
+            <span className="pb-3 text-ink-faint">=</span>
+            <div className="flex-1">
+              <MoneyInput
+                value={rate.to || null}
+                ariaLabel="จำนวนบาท"
+                onChange={(amount) => patch({ exchangeRate: { ...rate, to: amount ?? 0 } })}
+              />
+              <p className="mt-0.5 text-2xs text-ink-soft">บาท</p>
+            </div>
+          </div>
+          {!isUsableRate(bill.exchangeRate) && (
+            <p className="mt-2 text-2xs text-owed">ยังกรอกอัตราแลกเปลี่ยนไม่ครบ บันทึกบิลไม่ได้</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -371,7 +465,13 @@ function StepItems({
           }}
         />
         <div className="w-24">
-          <MoneyInput value={price} onChange={setPrice} onEnter={add} ariaLabel="ราคา" />
+          <MoneyInput
+            value={price}
+            currency={bill.currency}
+            onChange={setPrice}
+            onEnter={add}
+            ariaLabel="ราคา"
+          />
         </div>
         <div className="w-16">
           <QuantityInput value={quantity} onChange={setQuantity} />
@@ -407,6 +507,7 @@ function StepItems({
                 <div className="w-24">
                   <MoneyInput
                     value={item.unitPrice}
+                    currency={bill.currency}
                     onChange={(amount) => updateItem(item.id, { unitPrice: amount ?? 0 })}
                     ariaLabel="แก้ราคา"
                     onEnter={() => setEditingId(null)}
@@ -440,7 +541,7 @@ function StepItems({
                     {item.name}
                     {item.quantity > 1 && <span className="text-ink-faint"> ×{item.quantity}</span>}
                   </span>
-                  <Amount value={lineTotalOf(item)} size="md" />
+                  <Amount value={lineTotalOf(item)} size="md" currency={bill.currency} />
                 </button>
                 <button
                   type="button"
@@ -455,7 +556,7 @@ function StepItems({
           )}
           <li className="rule-dashed mt-1 flex items-baseline justify-between pt-2">
             <span className="text-[13px] text-ink-soft">รวม {bill.items.length} รายการ</span>
-            <Amount value={subtotal} size="lg" />
+            <Amount value={subtotal} size="lg" currency={bill.currency} />
           </li>
           <li className="pt-1 text-2xs text-ink-faint">แตะที่รายการเพื่อแก้ชื่อ ราคา หรือจำนวน</li>
         </ul>
@@ -492,6 +593,7 @@ function StepAssign({
           key={item.id}
           item={item}
           members={members}
+          currency={bill.currency}
           onChange={(split) => setSplit(item.id, split)}
         />
       ))}
@@ -502,10 +604,12 @@ function StepAssign({
 function ItemAssign({
   item,
   members,
+  currency,
   onChange,
 }: {
   item: LineItem;
   members: Member[];
+  currency?: string;
   onChange: (split: Split) => void;
 }) {
   const selected = new Set(selectedIds(item.split));
@@ -541,7 +645,7 @@ function ItemAssign({
           {item.name}
           {item.quantity > 1 && <span className="text-ink-faint"> ×{item.quantity}</span>}
         </span>
-        <Amount value={lineTotalOf(item)} size="md" />
+        <Amount value={lineTotalOf(item)} size="md" currency={currency} />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -636,7 +740,9 @@ function ItemAssign({
         )}
       </div>
 
-      <p className="mt-1.5 text-2xs text-ink-soft">{describeSplit(item, members, assigned)}</p>
+      <p className="mt-1.5 text-2xs text-ink-soft">
+        {describeSplit(item, members, assigned, currency)}
+      </p>
     </div>
   );
 }
@@ -656,7 +762,12 @@ function selectedIds(split: Split): string[] {
   }
 }
 
-function describeSplit(item: LineItem, members: Member[], assigned: number): string {
+function describeSplit(
+  item: LineItem,
+  members: Member[],
+  assigned: number,
+  currency?: string,
+): string {
   const nameOf = (id: string) => members.find((member) => member.id === id)?.name ?? '?';
   switch (item.split.mode) {
     case 'excluded':
@@ -666,8 +777,9 @@ function describeSplit(item: LineItem, members: Member[], assigned: number): str
     case 'equal':
       return item.split.memberIds.length === 0
         ? 'ยังไม่ได้เลือกว่าใครกิน'
-        : `หารเท่ากัน ${item.split.memberIds.length} คน คนละ ${formatBaht(
+        : `หารเท่ากัน ${item.split.memberIds.length} คน คนละ ${formatMoney(
             Math.floor(lineTotalOf(item) / item.split.memberIds.length),
+            currency,
           )} โดยประมาณ`;
     case 'byUnit':
       return assigned === item.quantity
@@ -700,16 +812,19 @@ function StepFees({
         label="ส่วนลดท้ายบิล"
         hint="กระจายให้ทุกคนตามสัดส่วนที่สั่ง"
         value={bill.discount}
+        currency={bill.currency}
         onChange={(discount) => patch({ discount })}
       />
       <AdjustmentField
         label="ค่าบริการ (Service Charge)"
         value={bill.serviceCharge}
+        currency={bill.currency}
         onChange={(serviceCharge) => patch({ serviceCharge })}
       />
       <AdjustmentField
         label="VAT"
         value={bill.vat}
+        currency={bill.currency}
         onChange={(vat) => patch({ vat })}
       />
 
@@ -729,11 +844,13 @@ function AdjustmentField({
   label,
   hint,
   value,
+  currency,
   onChange,
 }: {
   label: string;
   hint?: string;
   value: Adjustment;
+  currency?: string;
   onChange: (value: Adjustment) => void;
 }) {
   return (
@@ -785,6 +902,7 @@ function AdjustmentField({
           <div className="w-28">
             <MoneyInput
               value={value.value || null}
+              currency={currency}
               onChange={(amount) => onChange({ ...value, value: amount ?? 0 })}
               ariaLabel={`${label} เป็นจำนวนเงิน`}
             />
@@ -816,11 +934,12 @@ function StatedTotalField({
       <div className="flex items-baseline justify-between">
         <span className="text-[15px] font-medium">ยอดสุทธิบนบิล</span>
         <span className="text-2xs text-ink-soft">
-          คำนวณได้ {formatBaht(computedTotal)}
+          คำนวณได้ {formatMoney(computedTotal, bill.currency)}
         </span>
       </div>
       <MoneyInput
         value={bill.statedTotal || null}
+        currency={bill.currency}
         onChange={(amount) => {
           onTotalTouched();
           patch({ statedTotal: amount ?? 0 });
@@ -830,7 +949,7 @@ function StatedTotalField({
       />
       {difference !== 0 && (
         <p className="mt-1 text-2xs text-owed">
-          ต่างจากที่คำนวณได้ {formatBaht(Math.abs(difference))}
+          ต่างจากที่คำนวณได้ {formatMoney(Math.abs(difference), bill.currency)}
         </p>
       )}
     </div>
@@ -917,6 +1036,7 @@ function StepPayers({
                   <span className="w-28">
                     <MoneyInput
                       value={payer?.amount ?? null}
+                      currency={bill.currency}
                       onChange={(amount) => setAmount(member.id, amount)}
                       ariaLabel={`จำนวนที่ ${member.name} จ่าย`}
                     />
@@ -961,9 +1081,11 @@ function StepReview({
   onTotalTouched: () => void;
 }) {
   const { computation } = validation;
-  const shares = computation.shares;
+  // ต้องใช้ยอดในสกุลของบิล ไม่ใช่ยอดที่แปลงเป็นบาทแล้ว ไม่งั้นจะเอาสตางค์มาแสดงเป็นเยน
+  const shares = computation.localShares;
   const nameOf = (id: string) => members.find((member) => member.id === id)?.name ?? id;
   const mismatch = computation.issues.find((issue) => issue.code === 'totalMismatch');
+  const foreign = (bill.currency ?? HOME_CURRENCY) !== HOME_CURRENCY;
 
   return (
     <div>
@@ -976,13 +1098,27 @@ function StepReview({
               <li key={memberId} className="flex items-center gap-2 border-b border-rule py-2.5">
                 {member && <Avatar member={member} size={26} />}
                 <span className="min-w-0 flex-1 truncate text-[15px]">{nameOf(memberId)}</span>
-                <Amount value={shares[memberId]} size="md" />
+                <span className="text-right">
+                  <Amount value={shares[memberId]} size="md" currency={bill.currency} />
+                  {foreign && (
+                    <span className="mt-0.5 block text-2xs text-ink-soft">
+                      {formatMoney(computation.shares[memberId] ?? 0)} บาท
+                    </span>
+                  )}
+                </span>
               </li>
             );
           })}
         <li className="rule-dashed mt-1 flex items-baseline justify-between pt-2">
           <span className="text-[13px] text-ink-soft">รวมรายคน</span>
-          <Amount value={sumShares(shares)} size="lg" />
+          <span className="text-right">
+            <Amount value={sumShares(shares)} size="lg" currency={bill.currency} />
+            {foreign && (
+              <span className="mt-0.5 block text-2xs text-ink-soft">
+                {formatMoney(computation.homeTotal)} บาท
+              </span>
+            )}
+          </span>
         </li>
       </ul>
 
@@ -1004,7 +1140,12 @@ function StepReview({
                 {auditStep.label}
                 {auditStep.note && <span className="block text-2xs text-ink-faint">{auditStep.note}</span>}
               </span>
-              <Amount value={auditStep.amount} size="sm" sign={auditStep.key !== 'items'} />
+              <Amount
+                value={auditStep.amount}
+                size="sm"
+                currency={bill.currency}
+                sign={auditStep.key !== 'items'}
+              />
             </li>
           ))}
         </ul>
@@ -1018,10 +1159,10 @@ function StepReview({
       >
         {validation.canSave ? (
           <p className="text-[13px] text-settled">
-            ยอดตรงกับบิลแล้ว {formatBaht(bill.statedTotal)}
+            ยอดตรงกับบิลแล้ว {formatMoney(bill.statedTotal, bill.currency)}
             {computation.status === 'rounded' && computation.audit.roundingAppliedTo && (
               <span className="mt-0.5 block text-2xs text-ink-soft">
-                ปรับเศษ {formatBaht(computation.audit.difference, { sign: true })} ให้{' '}
+                ปรับเศษ {formatMoney(computation.audit.difference, bill.currency)} ให้{' '}
                 {nameOf(computation.audit.roundingAppliedTo)}
               </span>
             )}
@@ -1037,7 +1178,8 @@ function StepReview({
             </ul>
             {mismatch && !acceptDifference && (
               <button type="button" className="btn-quiet mt-3 w-full" onClick={onAccept}>
-                ยอมรับส่วนต่าง {formatBaht(Math.abs(mismatch.detail?.difference ?? 0))}
+                ยอมรับส่วนต่าง{' '}
+                {formatMoney(Math.abs(mismatch.detail?.difference ?? 0), bill.currency)}
               </button>
             )}
           </>

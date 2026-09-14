@@ -1,4 +1,5 @@
 import { computeBillShares, type BillComputation } from './computeBill';
+import { HOME_CURRENCY, currencyOf, isUsableRate } from './currency';
 import { formatBaht, sumMoney } from './money';
 import { participantsOf } from './splitItems';
 import type { Bill, Member, Money, Settlement, Waiver } from './types';
@@ -12,7 +13,7 @@ export type Severity = 'error' | 'warning';
 
 export interface ValidationIssue {
   severity: Severity;
-  field: 'items' | 'payers' | 'total' | 'members' | 'amount' | 'general';
+  field: 'items' | 'payers' | 'total' | 'members' | 'amount' | 'currency' | 'general';
   message: string;
   itemId?: string;
 }
@@ -42,6 +43,16 @@ export function validateBill(
   }
   if (bill.statedTotal <= 0) {
     issues.push({ severity: 'error', field: 'total', message: 'ยอดบนบิลต้องมากกว่า 0' });
+  }
+
+  // บิลที่กรอกเป็นสกุลอื่นต้องมีอัตราแลกเปลี่ยน ไม่งั้นคิดหนี้เป็นบาทไม่ได้
+  const code = bill.currency ?? HOME_CURRENCY;
+  if (code !== HOME_CURRENCY && !isUsableRate(bill.exchangeRate)) {
+    issues.push({
+      severity: 'error',
+      field: 'currency',
+      message: `บิลนี้กรอกเป็น${currencyOf(code).name} ต้องใส่อัตราแลกเปลี่ยนเป็นบาทก่อน`,
+    });
   }
 
   for (const item of bill.items) {
@@ -124,7 +135,8 @@ export function validateBill(
   for (const issue of computation.issues) {
     issues.push({
       severity: issue.code === 'negativeShare' ? 'warning' : 'error',
-      field: issue.code === 'itemSplit' ? 'items' : 'total',
+      field:
+        issue.code === 'itemSplit' ? 'items' : issue.code === 'missingRate' ? 'currency' : 'total',
       message: issue.message,
       itemId: issue.itemId,
     });

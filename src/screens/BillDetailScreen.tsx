@@ -7,6 +7,7 @@ import { Sheet } from '../components/Sheet';
 import { computeBillDebtsDetailed } from '../core/computeDebts';
 import { computeBillShares } from '../core/computeBill';
 import { formatBaht, sumShares } from '../core/money';
+import { HOME_CURRENCY, currencyOf, formatMoney } from '../core/currency';
 import { lineTotalOf } from '../core/splitItems';
 import type { LineItem, Member } from '../core/types';
 import { CATEGORY_LABEL, formatDate } from '../lib/format';
@@ -23,6 +24,8 @@ export function BillDetailScreen() {
   if (!bill) return <Navigate to={`/trip/${tripId}`} replace />;
 
   const computation = computeBillShares(bill, members);
+  const code = bill.currency ?? HOME_CURRENCY;
+  const foreign = code !== HOME_CURRENCY;
   const detailed = computeBillDebtsDetailed(bill, computation.shares);
   const nameOf = (id: string) => members.find((member) => member.id === id)?.name ?? id;
   const memberOf = (id: string) => members.find((member) => member.id === id);
@@ -32,7 +35,11 @@ export function BillDetailScreen() {
     <div className="min-h-dvh pb-28">
       <AppBar
         title={bill.title}
-        subtitle={`${formatDate(bill.date)} · ${CATEGORY_LABEL[bill.category]}`}
+        subtitle={
+          foreign
+            ? `${formatDate(bill.date)} · ${CATEGORY_LABEL[bill.category]} · ${currencyOf(code).name}`
+            : `${formatDate(bill.date)} · ${CATEGORY_LABEL[bill.category]}`
+        }
         back={`/trip/${tripId}`}
         action={
           <Link
@@ -54,7 +61,7 @@ export function BillDetailScreen() {
                   {item.name}
                   {item.quantity > 1 && <span className="text-ink-faint"> ×{item.quantity}</span>}
                 </span>
-                <Amount value={lineTotalOf(item)} size="md" />
+                <Amount value={lineTotalOf(item)} size="md" currency={code} />
               </div>
               <p className="mt-0.5 text-2xs text-ink-soft">{ownersLabel(item, members)}</p>
             </li>
@@ -67,12 +74,19 @@ export function BillDetailScreen() {
             .map((step, index) => (
               <li key={index} className="flex items-baseline justify-between py-1">
                 <span className="text-[13px] text-ink-soft">{step.label}</span>
-                <Amount value={step.amount} size="sm" sign />
+                <Amount value={step.amount} size="sm" currency={code} sign />
               </li>
             ))}
           <li className="rule-dashed mt-1 flex items-baseline justify-between pt-2">
             <span className="text-[15px] font-medium">ยอดบนบิล</span>
-            <Amount value={bill.statedTotal} size="lg" />
+            <span className="text-right">
+              <Amount value={bill.statedTotal} size="lg" currency={code} />
+              {foreign && (
+                <span className="mt-0.5 block text-2xs text-ink-soft">
+                  = {formatMoney(computation.homeTotal)} บาท
+                </span>
+              )}
+            </span>
           </li>
         </ul>
       </section>
@@ -86,14 +100,33 @@ export function BillDetailScreen() {
               <li key={memberId} className="flex items-center gap-2 border-b border-rule py-2.5">
                 {memberOf(memberId) && <Avatar member={memberOf(memberId)!} size={26} />}
                 <span className="min-w-0 flex-1 truncate text-[15px]">{nameOf(memberId)}</span>
-                <Amount value={detailed.paid[memberId] ?? 0} size="sm" tone="muted" className="w-24 text-right" />
-                <Amount value={computation.shares[memberId]} size="md" className="w-24 text-right" />
+                {foreign ? (
+                  <>
+                    <Amount
+                      value={computation.localShares[memberId] ?? 0}
+                      size="sm"
+                      tone="muted"
+                      currency={code}
+                      className="w-24 text-right"
+                    />
+                    <Amount value={computation.shares[memberId]} size="md" className="w-24 text-right" />
+                  </>
+                ) : (
+                  <>
+                    <Amount value={detailed.paid[memberId] ?? 0} size="sm" tone="muted" className="w-24 text-right" />
+                    <Amount value={computation.shares[memberId]} size="md" className="w-24 text-right" />
+                  </>
+                )}
               </li>
             ))}
         </ul>
         <p className="mt-1 flex items-baseline justify-between text-2xs text-ink-faint">
-          <span>จ่ายให้ร้าน / ส่วนของตัวเอง</span>
-          <span className="tnum">รวม {formatBaht(sumShares(computation.shares))}</span>
+          <span>
+            {foreign
+              ? `ส่วนของตัวเอง (${currencyOf(code).name}) / คิดเป็นบาท`
+              : 'จ่ายให้ร้าน / ส่วนของตัวเอง'}
+          </span>
+          <span className="tnum">รวม {formatBaht(sumShares(computation.shares))} บาท</span>
         </p>
       </section>
 
