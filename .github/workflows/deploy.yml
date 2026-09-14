@@ -39,10 +39,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      # enablement: true = เปิด GitHub Pages ให้เองถ้ายังไม่ได้เปิด ไม่ต้องไปกดในหน้า Settings
+      # ครั้งแรกต้องเปิด Pages ด้วยมือก่อน: Settings > Pages > Source: GitHub Actions
+      # (GITHUB_TOKEN ของ workflow ไม่มีสิทธิ์สร้าง Pages site ให้เอง)
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
