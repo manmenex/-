@@ -50,7 +50,7 @@ src/
 push ขึ้น branch แล้ว GitHub Actions จะ build และ deploy ขึ้น GitHub Pages ให้เอง
 (`.github/workflows/deploy.yml`) โดยจะรัน test กับ typecheck ก่อน ถ้าเลขผิดจะไม่ deploy
 
-ครั้งแรกต้องเปิด Pages ในหน้า repo ก่อน: **Settings → Pages → Source: GitHub Actions**
+workflow เปิด Pages ให้เองในรอบแรก (`enablement: true`) ไม่ต้องไปตั้งค่าในหน้า repo
 
 `base: './'` กับ HashRouter ทำให้แอปทำงานได้ทั้งตอนเปิดจาก subpath
 (`/-/` ตามชื่อ repo) และตอนเปิดจากไฟล์ในเครื่อง
