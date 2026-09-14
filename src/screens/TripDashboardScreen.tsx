@@ -15,7 +15,7 @@ import {
   useTripStore,
 } from '../store/tripStore';
 
-type Filter = 'all' | 'open' | Category;
+type Filter = 'all' | 'problem' | Category;
 
 export function TripDashboardScreen() {
   const { tripId = '' } = useParams();
@@ -36,11 +36,19 @@ export function TripDashboardScreen() {
   const nameOf = (id: string) => members.find((member) => member.id === id)?.name ?? '?';
   const memberOf = (id: string) => members.find((member) => member.id === id);
 
+  /**
+   * ไม่มีตัวกรอง "ยังไม่เคลียร์" แล้ว
+   * เพราะการชำระเป็นยอดสุทธิทั้งทริป ไม่ได้ผูกกับบิลใบไหน (ตามสเปคข้อ 5.3)
+   * จะบอกว่า "บิลใบนี้เคลียร์แล้ว" ไม่ได้โดยไม่เดาเอาเองว่าเงินที่โอนไปหักบิลใบไหนก่อน
+   * ตัวกรองที่ทำได้จริงและมีประโยชน์คือบิลที่ยอดยังไม่ตรง ซึ่งต้องกลับไปแก้
+   */
+  const problemBillIds = new Set(
+    outstanding.bills.filter((entry) => entry.skipped || entry.problems.length > 0).map((entry) => entry.bill.id),
+  );
+
   const visibleBills = bills.filter((bill) => {
     if (filter === 'all') return true;
-    if (filter === 'open') {
-      return outstanding.bills.find((entry) => entry.bill.id === bill.id)?.debts.length !== 0;
-    }
+    if (filter === 'problem') return problemBillIds.has(bill.id);
     return bill.category === filter;
   });
 
@@ -192,7 +200,11 @@ export function TripDashboardScreen() {
         </div>
 
         <div className="-mx-5 mt-2 flex gap-2 overflow-x-auto px-5 pb-1">
-          {(['all', 'open', ...(Object.keys(CATEGORY_LABEL) as Category[])] as Filter[]).map((entry) => (
+          {([
+            'all',
+            ...(problemBillIds.size > 0 ? (['problem'] as Filter[]) : []),
+            ...(Object.keys(CATEGORY_LABEL) as Category[]),
+          ] as Filter[]).map((entry) => (
             <button
               key={entry}
               type="button"
@@ -201,7 +213,7 @@ export function TripDashboardScreen() {
               }`}
               onClick={() => setFilter(entry)}
             >
-              {entry === 'all' ? 'ทั้งหมด' : entry === 'open' ? 'ยังไม่เคลียร์' : CATEGORY_LABEL[entry]}
+              {entry === 'all' ? 'ทั้งหมด' : entry === 'problem' ? 'ยอดไม่ตรง' : CATEGORY_LABEL[entry]}
             </button>
           ))}
         </div>
@@ -215,7 +227,12 @@ export function TripDashboardScreen() {
             {visibleBills.map((bill) => {
               const evaluation = outstanding.bills.find((entry) => entry.bill.id === bill.id);
               const payerNames = bill.payers.map((payer) => nameOf(payer.memberId)).join(', ');
-              const cleared = evaluation && !evaluation.skipped && evaluation.debts.length === 0;
+              // นับเฉพาะคนที่มียอดต้องรับผิดชอบจริงในบิลใบนี้
+              const shareCount = evaluation
+                ? Object.values(evaluation.computation.shares).filter((amount) => amount > 0).length
+                : 0;
+              // ทุกคนจ่ายส่วนของตัวเองพอดี ไม่มีใครต้องคืนใครตั้งแต่แรก — เป็นจริงตลอด ไม่ขึ้นกับการโอนทีหลัง
+              const evenFromStart = evaluation && !evaluation.skipped && evaluation.debts.length === 0;
               return (
                 <li key={bill.id}>
                   <Link
@@ -233,10 +250,10 @@ export function TripDashboardScreen() {
                       <span className="mt-0.5 block text-2xs">
                         {evaluation?.skipped ? (
                           <span className="text-owed">ยอดไม่ตรง</span>
-                        ) : cleared ? (
-                          <span className="text-settled">เคลียร์แล้ว</span>
+                        ) : evenFromStart ? (
+                          <span className="text-settled">จ่ายกันครบแล้ว</span>
                         ) : (
-                          <span className="text-ink-faint">{evaluation?.debts.length ?? 0} คนต้องคืน</span>
+                          <span className="text-ink-faint">{shareCount} คนร่วมบิล</span>
                         )}
                       </span>
                     </span>

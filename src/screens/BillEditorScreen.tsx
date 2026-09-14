@@ -327,7 +327,15 @@ function StepItems({
   const [name, setName] = useState('');
   const [price, setPrice] = useState<Money | null>(null);
   const [quantity, setQuantity] = useState(1);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  // แก้รายการที่เพิ่มไปแล้วได้ในที่เดิม ไม่ต้องลบทิ้งแล้วพิมพ์ใหม่ทั้งบรรทัด
+  const updateItem = (itemId: string, changes: Partial<LineItem>) => {
+    patch({
+      items: bill.items.map((entry) => (entry.id === itemId ? { ...entry, ...changes } : entry)),
+    });
+  };
 
   const add = () => {
     if (price === null) return;
@@ -385,27 +393,71 @@ function StepItems({
         </p>
       ) : (
         <ul className="mt-5">
-          {bill.items.map((item) => (
-            <li key={item.id} className="flex items-baseline gap-2 border-b border-rule py-2.5">
-              <span className="min-w-0 flex-1 truncate text-[15px]">
-                {item.name}
-                {item.quantity > 1 && <span className="text-ink-faint"> ×{item.quantity}</span>}
-              </span>
-              <Amount value={lineTotalOf(item)} size="md" />
-              <button
-                type="button"
-                className="tap -mr-2 w-8 text-ink-faint"
-                aria-label={`ลบ ${item.name}`}
-                onClick={() => patch({ items: bill.items.filter((entry) => entry.id !== item.id) })}
-              >
-                ×
-              </button>
-            </li>
-          ))}
+          {bill.items.map((item) =>
+            editingId === item.id ? (
+              <li key={item.id} className="flex items-end gap-2 border-b border-accent py-2">
+                <input
+                  className="field flex-1"
+                  value={item.name}
+                  aria-label="แก้ชื่อรายการ"
+                  autoFocus
+                  {...noAutofill}
+                  onChange={(event) => updateItem(item.id, { name: event.target.value })}
+                />
+                <div className="w-24">
+                  <MoneyInput
+                    value={item.unitPrice}
+                    onChange={(amount) => updateItem(item.id, { unitPrice: amount ?? 0 })}
+                    ariaLabel="แก้ราคา"
+                    onEnter={() => setEditingId(null)}
+                  />
+                </div>
+                <div className="w-16">
+                  <QuantityInput
+                    value={item.quantity}
+                    onChange={(value) => updateItem(item.id, { quantity: value })}
+                    ariaLabel="แก้จำนวน"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="tap mb-0.5 flex h-10 w-10 items-center justify-center bg-settled text-paper"
+                  aria-label="แก้เสร็จแล้ว"
+                  onClick={() => setEditingId(null)}
+                >
+                  ✓
+                </button>
+              </li>
+            ) : (
+              <li key={item.id} className="flex items-baseline gap-2 border-b border-rule py-2.5">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-baseline gap-2 py-1 text-left"
+                  aria-label={`แก้ไข ${item.name}`}
+                  onClick={() => setEditingId(item.id)}
+                >
+                  <span className="min-w-0 flex-1 truncate text-[15px]">
+                    {item.name}
+                    {item.quantity > 1 && <span className="text-ink-faint"> ×{item.quantity}</span>}
+                  </span>
+                  <Amount value={lineTotalOf(item)} size="md" />
+                </button>
+                <button
+                  type="button"
+                  className="tap -mr-2 w-8 text-ink-faint"
+                  aria-label={`ลบ ${item.name}`}
+                  onClick={() => patch({ items: bill.items.filter((entry) => entry.id !== item.id) })}
+                >
+                  ×
+                </button>
+              </li>
+            ),
+          )}
           <li className="rule-dashed mt-1 flex items-baseline justify-between pt-2">
             <span className="text-[13px] text-ink-soft">รวม {bill.items.length} รายการ</span>
             <Amount value={subtotal} size="lg" />
           </li>
+          <li className="pt-1 text-2xs text-ink-faint">แตะที่รายการเพื่อแก้ชื่อ ราคา หรือจำนวน</li>
         </ul>
       )}
     </div>
@@ -458,13 +510,20 @@ function ItemAssign({
 }) {
   const selected = new Set(selectedIds(item.split));
   const byUnitMode = item.split.mode === 'byUnit';
+  const byRatioMode = item.split.mode === 'byRatio';
   const units = item.split.mode === 'byUnit' ? item.split.units : {};
+  const ratios = item.split.mode === 'byRatio' ? item.split.ratios : {};
   const assigned = sumMoney(Object.values(units));
 
   const toggle = (memberId: string) => {
     if (item.split.mode === 'byUnit') {
       const next = { ...units, [memberId]: (units[memberId] ?? 0) > 0 ? 0 : 1 };
       onChange({ mode: 'byUnit', units: next });
+      return;
+    }
+    if (item.split.mode === 'byRatio') {
+      const next = { ...ratios, [memberId]: (ratios[memberId] ?? 0) > 0 ? 0 : 1 };
+      onChange({ mode: 'byRatio', ratios: next });
       return;
     }
     const next = new Set(selected);
@@ -487,7 +546,11 @@ function ItemAssign({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {members.map((member) => {
-          const on = byUnitMode ? (units[member.id] ?? 0) > 0 : selected.has(member.id);
+          const on = byUnitMode
+            ? (units[member.id] ?? 0) > 0
+            : byRatioMode
+              ? (ratios[member.id] ?? 0) > 0
+              : selected.has(member.id);
           return (
             <span key={member.id} className="inline-flex items-center gap-1">
               <button
@@ -505,6 +568,12 @@ function ItemAssign({
                   value={units[member.id] ?? 0}
                   max={item.quantity - assigned + (units[member.id] ?? 0)}
                   onChange={(value) => onChange({ mode: 'byUnit', units: { ...units, [member.id]: value } })}
+                />
+              )}
+              {byRatioMode && on && (
+                <Stepper
+                  value={ratios[member.id] ?? 0}
+                  onChange={(value) => onChange({ mode: 'byRatio', ratios: { ...ratios, [member.id]: value } })}
                 />
               )}
             </span>
@@ -533,7 +602,7 @@ function ItemAssign({
         >
           ไม่คิดเงิน
         </button>
-        {item.quantity > 1 && (
+        {item.quantity > 1 && !byRatioMode && (
           <button
             type="button"
             className="tap text-accent"
@@ -547,6 +616,22 @@ function ItemAssign({
             }
           >
             {byUnitMode ? 'กลับไปหารเท่า' : 'กำหนดจำนวนต่อคน'}
+          </button>
+        )}
+        {!byUnitMode && (
+          <button
+            type="button"
+            className="tap text-accent"
+            onClick={() =>
+              byRatioMode
+                ? onChange({ mode: 'equal', memberIds: [...selected] })
+                : onChange({
+                    mode: 'byRatio',
+                    ratios: Object.fromEntries([...selected].map((id) => [id, 1])),
+                  })
+            }
+          >
+            {byRatioMode ? 'กลับไปหารเท่า' : 'แบ่งไม่เท่ากัน'}
           </button>
         )}
       </div>
@@ -588,8 +673,11 @@ function describeSplit(item: LineItem, members: Member[], assigned: number): str
       return assigned === item.quantity
         ? `ระบุครบ ${item.quantity} ชิ้นแล้ว`
         : `ระบุไปแล้ว ${assigned} จาก ${item.quantity} ชิ้น`;
-    case 'byRatio':
-      return 'แบ่งตามน้ำหนัก';
+    case 'byRatio': {
+      const weights = Object.entries(item.split.ratios).filter(([, weight]) => weight > 0);
+      if (weights.length === 0) return 'ยังไม่ได้เลือกว่าใครกิน';
+      return `แบ่งตามสัดส่วน ${weights.map(([id, weight]) => `${nameOf(id)} ${weight}`).join(' : ')}`;
+    }
   }
 }
 

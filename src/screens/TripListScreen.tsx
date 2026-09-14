@@ -14,7 +14,12 @@ export function TripListScreen() {
 
   const trips = useMemo(() => {
     return Object.values(state.trips)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .sort((a, b) => {
+        // ทริปที่เก็บเข้าคลังแล้วไปอยู่ท้ายรายการ ที่เหลือเรียงใหม่ไปเก่า
+        const archived = Number(Boolean(a.archivedAt)) - Number(Boolean(b.archivedAt));
+        if (archived !== 0) return archived;
+        return a.createdAt < b.createdAt ? 1 : -1;
+      })
       .map((trip) => ({ trip, summary: summarize(state, trip.id) }));
   }, [state]);
 

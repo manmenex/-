@@ -140,7 +140,18 @@ export function SettingsScreen() {
         <section className="mt-8 px-5">
           <button
             type="button"
-            className="btn-quiet w-full text-owed"
+            className="btn-quiet w-full"
+            onClick={() => useTripStore.getState().archiveTrip(trip.id, !trip.archivedAt)}
+          >
+            {trip.archivedAt ? 'เอาออกจากคลัง' : 'เก็บทริปนี้เข้าคลัง'}
+          </button>
+          <p className="mt-1.5 text-2xs text-ink-soft">
+            ทริปที่เก็บเข้าคลังยังอยู่ครบ แค่ถูกเลื่อนไปท้ายรายการเพื่อไม่ให้เกะกะ
+          </p>
+
+          <button
+            type="button"
+            className="btn-quiet mt-4 w-full text-owed"
             onClick={() => setDeleting(true)}
           >
             ลบทริปนี้
