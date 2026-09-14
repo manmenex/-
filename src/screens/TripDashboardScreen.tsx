@@ -8,10 +8,13 @@ import { formatBaht } from '../core/money';
 import type { Category } from '../core/types';
 import { CATEGORY_LABEL, formatDate } from '../lib/format';
 import { buildShareText, copyToClipboard } from '../lib/summary';
+import { SHARE_LENGTH_WARNING, encodeShare, shareUrl } from '../lib/shareLink';
 import {
   selectOutstanding,
   selectTripBills,
   selectTripMembers,
+  selectTripSettlements,
+  selectTripWaivers,
   useTripStore,
 } from '../store/tripStore';
 
@@ -25,6 +28,7 @@ export function TripDashboardScreen() {
   const [prefill, setPrefill] = useState<SettlePrefill | undefined>();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [linkState, setLinkState] = useState<'idle' | 'working' | 'copied' | 'long' | 'failed'>('idle');
 
   const trip = state.trips[tripId];
   const members = useMemo(() => selectTripMembers(state, tripId), [state, tripId]);
@@ -186,17 +190,53 @@ export function TripDashboardScreen() {
       <section className="rule-solid px-5 pt-4">
         <div className="flex items-baseline justify-between">
           <h2 className="text-2xs uppercase tracking-wide text-ink-soft">บิลทั้งหมด</h2>
-          <button
-            type="button"
-            className="tap text-[13px] text-accent"
-            onClick={async () => {
-              const ok = await copyToClipboard(buildShareText(trip.name, members, outstanding));
-              setCopied(ok);
-              window.setTimeout(() => setCopied(false), 2000);
-            }}
-          >
-            {copied ? 'คัดลอกแล้ว' : 'คัดลอกสรุป'}
-          </button>
+          <span className="flex gap-3">
+            <button
+              type="button"
+              className="tap text-[13px] text-accent"
+              onClick={async () => {
+                const ok = await copyToClipboard(buildShareText(trip.name, members, outstanding));
+                setCopied(ok);
+                window.setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              {copied ? 'คัดลอกแล้ว' : 'คัดลอกสรุป'}
+            </button>
+            <button
+              type="button"
+              className="tap text-[13px] text-accent"
+              onClick={async () => {
+                setLinkState('working');
+                try {
+                  // ฝังข้อมูลทั้งทริปไว้ในลิงก์เอง เพื่อนกดแล้วเห็นเลย ไม่ต้องมี server
+                  const token = await encodeShare({
+                    trips: [trip],
+                    members,
+                    bills,
+                    settlements: selectTripSettlements(state, tripId),
+                    waivers: selectTripWaivers(state, tripId),
+                  });
+                  const url = shareUrl(token);
+                  const ok = await copyToClipboard(url);
+                  if (!ok) setLinkState('failed');
+                  else setLinkState(url.length > SHARE_LENGTH_WARNING ? 'long' : 'copied');
+                } catch {
+                  setLinkState('failed');
+                }
+                window.setTimeout(() => setLinkState('idle'), 4000);
+              }}
+            >
+              {linkState === 'working'
+                ? 'กำลังทำลิงก์…'
+                : linkState === 'copied'
+                  ? 'คัดลอกลิงก์แล้ว'
+                  : linkState === 'long'
+                    ? 'คัดลอกแล้ว (ลิงก์ยาว)'
+                    : linkState === 'failed'
+                      ? 'ทำลิงก์ไม่สำเร็จ'
+                      : 'แชร์ลิงก์'}
+            </button>
+          </span>
         </div>
 
         <div className="-mx-5 mt-2 flex gap-2 overflow-x-auto px-5 pb-1">
