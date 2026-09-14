@@ -1,3 +1,4 @@
+import { parseBaht } from '../money';
 import type { Adjustment, Bill, LineItem, Member, Money, Split } from '../types';
 
 /** สมาชิกชุดเดียวกับทริปจริงที่ใช้เป็นตัวเลขทดสอบ */
@@ -13,8 +14,12 @@ export const MEMBERS: Member[] = [
 
 export const none: Adjustment = { mode: 'none', value: 0, included: false };
 
-/** บาท -> สตางค์ สำหรับเขียนเทสให้อ่านง่าย */
-export const B = (baht: number): Money => Math.round(baht * 100);
+/** บาท -> สตางค์ สำหรับเขียนเทสให้อ่านง่าย (ผ่าน parseBaht จึงไม่แตะ float) */
+export const B = (baht: number): Money => {
+  const satang = parseBaht(String(baht));
+  if (satang === null) throw new Error(`แปลงจำนวนเงินไม่ได้: ${baht}`);
+  return satang;
+};
 
 let counter = 0;
 const nextId = () => `id-${++counter}`;

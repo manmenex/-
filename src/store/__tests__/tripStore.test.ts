@@ -47,7 +47,16 @@ describe('tripStore', () => {
     const outstanding = selectOutstanding(useTripStore.getState(), tripId);
     expect(outstanding.totals.tripTotal).toBe(B(302));
     expect(outstanding.settlementPlan).toHaveLength(2);
-    expect(outstanding.balances[memberIds[0]]).toBe(B(302) - 10067);
+
+    // 302 หารสามไม่ลงตัว เศษไปที่ memberId ที่เรียงแล้วอยู่ก่อน
+    // (id เป็น uuid จึงไม่ผูกกับลำดับที่สร้าง) ที่ต้องแน่นอนคือยอดรวมและสมการ
+    const payer = outstanding.perMember.find((entry) => entry.memberId === memberIds[0])!;
+    expect(payer.paid).toBe(B(302));
+    expect([10066, 10067]).toContain(payer.share);
+    expect(payer.balance).toBe(payer.paid - payer.share);
+    expect(
+      outstanding.perMember.reduce((sum, entry) => sum + entry.share, 0),
+    ).toBe(B(302));
   });
 
   it('บันทึกการโอนแล้วยอดค้างลดลง และไม่แตะบิลเดิม', () => {

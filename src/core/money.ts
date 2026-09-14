@@ -105,11 +105,21 @@ export function multiply(amount: Money, quantity: number): Money {
   return result;
 }
 
+/**
+ * แปลงน้ำหนัก/เปอร์เซ็นต์เป็น integer ที่สเกลแล้ว
+ * ถ้าเป็นจำนวนเต็มอยู่แล้ว (เช่นยอดเงินที่ใช้เป็นน้ำหนัก) คูณบน BigInt ตรงๆ
+ * จะได้ไม่มีการคูณบน float ที่จุดไหนเลย
+ */
+function scaleWeight(value: number): bigint {
+  if (Number.isInteger(value)) return BigInt(value) * BigInt(WEIGHT_SCALE);
+  return BigInt(Math.round(value * WEIGHT_SCALE));
+}
+
 /** a * num / den ปัดครึ่งขึ้น (ห่างจากศูนย์) คำนวณบน BigInt ทั้งหมด */
 export function mulDiv(amount: Money, numerator: number, denominator: number): Money {
   if (denominator === 0) throw new MoneyError('หารด้วยศูนย์');
-  const scaledNum = BigInt(Math.round(numerator * WEIGHT_SCALE));
-  const scaledDen = BigInt(Math.round(denominator * WEIGHT_SCALE));
+  const scaledNum = scaleWeight(numerator);
+  const scaledDen = scaleWeight(denominator);
   if (scaledDen === 0n) throw new MoneyError('หารด้วยศูนย์');
 
   const product = BigInt(amount) * scaledNum;
@@ -150,7 +160,7 @@ export function allocate(total: Money, weights: number[]): Money[] {
   const sign = total < 0 ? -1 : 1;
   const abs = BigInt(Math.abs(total));
 
-  let scaled = weights.map((w) => BigInt(Math.round(w * WEIGHT_SCALE)));
+  let scaled = weights.map(scaleWeight);
   let totalWeight = scaled.reduce((a, b) => a + b, 0n);
   if (totalWeight === 0n) {
     // ไม่มีน้ำหนัก (เช่น ทุกคนยอดเป็นศูนย์) → หารเท่ากัน

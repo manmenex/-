@@ -1,0 +1,104 @@
+@import './fonts.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    background: theme('colors.paper');
+  }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    margin: 0;
+    overscroll-behavior-y: none;
+  }
+
+  /* ตัวเลขเงินต้องเรียงตรงกันเป็นคอลัมน์เสมอ */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer components {
+  /* เส้นประคั่นก่อนยอดรวม แบบใบเสร็จ */
+  .rule-dashed {
+    border-top: 1px dashed theme('colors.rule');
+  }
+
+  .rule-solid {
+    border-top: 1px solid theme('colors.rule');
+  }
+
+  .field {
+    @apply w-full rounded-none border-0 border-b border-rule bg-transparent px-0 py-2.5
+           text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none;
+  }
+
+  .btn {
+    @apply inline-flex min-h-touch items-center justify-center gap-2 px-4 text-[15px]
+           font-medium transition-colors disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-paper active:bg-ink;
+  }
+
+  .btn-quiet {
+    @apply btn border border-rule bg-paper text-ink active:bg-paper-sunk;
+  }
+
+  .tap {
+    @apply min-h-touch min-w-touch;
+  }
+
+  .sheet-enter {
+    animation: sheet-up 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .row-leave {
+    animation: row-out 220ms ease-in forwards;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(12%);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes row-out {
+  to {
+    opacity: 0;
+    transform: translateX(-8px);
+    max-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-enter,
+  .row-leave {
+    animation: none;
+  }
+}
