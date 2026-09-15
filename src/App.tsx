@@ -9,6 +9,7 @@ import { MemberDetailScreen } from './screens/MemberDetailScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SharedTripScreen } from './screens/SharedTripScreen';
 import { RateCalculatorScreen } from './screens/RateCalculatorScreen';
+import { QuickRateScreen } from './screens/QuickRateScreen';
 
 export default function App() {
   const hydrated = useTripStore((state) => state.hydrated);
@@ -29,6 +30,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<TripListScreen />} />
         <Route path="/archive" element={<TripListScreen archived />} />
+        <Route path="/rate" element={<QuickRateScreen />} />
         <Route path="/settings" element={<SettingsScreen />} />
         <Route path="/share/:token" element={<SharedTripScreen />} />
         <Route path="/trip/:tripId" element={<TripDashboardScreen />} />

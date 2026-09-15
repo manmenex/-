@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Sheet } from '../components/Sheet';
 import { noAutofill } from '../components/Inputs';
 import { computeOutstanding } from '../core/settle';
+import { currencyOf, formatMoney, isUsableRate } from '../core/currency';
+import { loadRateTable, lookupRate, type RateTable } from '../lib/rates';
+import { todayISO } from '../store/ids';
 import { useTripStore, type TripState } from '../store/tripStore';
 
 /**
@@ -39,6 +42,8 @@ export function TripListScreen({ archived = false }: { archived?: boolean }) {
           )
         }
       />
+
+      {!archived && <QuickRateStrip />}
 
       {trips.length === 0 ? (
         archived ? (
@@ -208,5 +213,53 @@ function NewTripSheet({
         {filled.length < 2 ? 'ใส่ชื่อให้ครบอย่างน้อย 2 คน' : `สร้างทริป ${filled.length} คน`}
       </button>
     </Sheet>
+  );
+}
+
+/**
+ * แถบอัตราแลกเปลี่ยนบนหน้าแรก ไว้เช็กเร็วโดยไม่ต้องเข้าทริป
+ *
+ * ถ้ามีอัตราอยู่แล้ว (ที่เคยตั้งเอง หรือของ ธปท. วันนี้) จะอ่านได้จากหน้าแรกเลย
+ * ไม่ต้องกดเข้าไปด้วยซ้ำ กดเมื่อต้องการคิดเลขจริงๆ เท่านั้น
+ */
+function QuickRateStrip() {
+  const quickRate = useTripStore((state) => state.quickRate);
+  const [table, setTable] = useState<RateTable | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadRateTable().then((loaded) => {
+      if (!cancelled) setTable(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const code = quickRate.currency ?? 'JPY';
+  const saved = quickRate.rates?.[code];
+  const reference = lookupRate(table, code, todayISO());
+  // ที่ตั้งเองมาก่อน เพราะเป็นเรตที่โดนจริง ไม่มีค่อยใช้ของ ธปท.
+  const rate = isUsableRate(saved) ? saved : reference?.rate;
+
+  return (
+    <Link
+      to="/rate"
+      className="flex items-baseline justify-between border-b border-rule px-5 py-3 active:bg-paper-sunk"
+    >
+      <span className="text-[13px] text-ink-soft">
+        {rate ? `${currencyOf(code).symbol} ${currencyOf(code).name}` : 'คิดอัตราแลกเปลี่ยน'}
+      </span>
+      <span className="tnum text-[13px]">
+        {rate ? (
+          <>
+            {formatMoney(rate.from, code)} = {formatMoney(rate.to)} บาท
+            <span className="text-ink-faint"> →</span>
+          </>
+        ) : (
+          <span className="text-accent">เปิดเครื่องคิดเลข →</span>
+        )}
+      </span>
+    </Link>
   );
 }

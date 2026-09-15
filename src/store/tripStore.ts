@@ -25,7 +25,14 @@ export interface BillDraft {
   updatedAt: string;
 }
 
+/** อัตราที่ใช้ในเครื่องคิดเลขเร็วบนหน้าแรก ไม่ผูกกับทริปไหน */
+export interface QuickRateSettings {
+  currency?: string;
+  rates?: Record<string, ExchangeRate>;
+}
+
 export interface TripState {
+  quickRate: QuickRateSettings;
   trips: Record<string, Trip>;
   members: Record<string, Member>;
   bills: Record<string, Bill>;
@@ -38,6 +45,9 @@ export interface TripState {
   renameTrip: (tripId: string, name: string) => void;
   archiveTrip: (tripId: string, archived: boolean) => void;
   deleteTrip: (tripId: string) => void;
+
+  setQuickCurrency: (code: string) => void;
+  setQuickRate: (code: string, rate: ExchangeRate) => void;
 
   setTripCurrency: (tripId: string, code: string | undefined) => void;
   setTripRate: (tripId: string, code: string, rate: ExchangeRate) => void;
@@ -119,6 +129,7 @@ const idbStorage: StateStorage = {
 };
 
 const empty = () => ({
+  quickRate: {} as QuickRateSettings,
   trips: {} as Record<string, Trip>,
   members: {} as Record<string, Member>,
   bills: {} as Record<string, Bill>,
@@ -199,6 +210,14 @@ export const useTripStore = create<TripState>()(
             drafts: filterByTrip(state.drafts),
           };
         }),
+
+      setQuickCurrency: (code) =>
+        setState((state) => ({ quickRate: { ...state.quickRate, currency: code } })),
+
+      setQuickRate: (code, rate) =>
+        setState((state) => ({
+          quickRate: { ...state.quickRate, rates: { ...state.quickRate.rates, [code]: rate } },
+        })),
 
       setTripCurrency: (tripId, code) =>
         setState((state) => ({
@@ -356,7 +375,8 @@ export const useTripStore = create<TripState>()(
     {
       name: 'trip-splitter-v1',
       storage: createJSONStorage(() => idbStorage),
-      partialize: ({ trips, members, bills, settlements, waivers, drafts }) => ({
+      partialize: ({ quickRate, trips, members, bills, settlements, waivers, drafts }) => ({
+        quickRate,
         trips,
         members,
         bills,
