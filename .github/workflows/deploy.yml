@@ -4,6 +4,11 @@ on:
   push:
     branches: [claude/multi-payer-settlement-system-jaweia, main]
   workflow_dispatch:
+  # GitHub จงใจไม่ trigger workflow จาก push ที่ใช้ GITHUB_TOKEN (กันลูปไม่รู้จบ)
+  # ไฟล์อัตราที่ bot commit เข้ามาจึงไม่เคยถูก deploy ต้องดักที่ตอน workflow นั้นจบแทน
+  workflow_run:
+    workflows: ['Update exchange rates']
+    types: [completed]
 
 # ให้ workflow นี้ push ขึ้น Pages ได้
 permissions:
@@ -18,6 +23,10 @@ concurrency:
 
 jobs:
   build:
+    # ถ้ามาจาก workflow อัตรา ให้ deploy เฉพาะตอนที่ดึงอัตราสำเร็จ
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
