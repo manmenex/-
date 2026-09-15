@@ -8,6 +8,7 @@ import { BillDetailScreen } from './screens/BillDetailScreen';
 import { MemberDetailScreen } from './screens/MemberDetailScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SharedTripScreen } from './screens/SharedTripScreen';
+import { RateCalculatorScreen } from './screens/RateCalculatorScreen';
 
 export default function App() {
   const hydrated = useTripStore((state) => state.hydrated);
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/trip/:tripId/bill/:billId/edit" element={<BillEditorScreen />} />
         <Route path="/trip/:tripId/member/:memberId" element={<MemberDetailScreen />} />
         <Route path="/trip/:tripId/settings" element={<SettingsScreen />} />
+        <Route path="/trip/:tripId/rate" element={<RateCalculatorScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

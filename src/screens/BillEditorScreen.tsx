@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
@@ -18,7 +18,7 @@ import {
 import { lineTotalOf } from '../core/splitItems';
 import { computeOutstanding } from '../core/settle';
 import { validateBill } from '../core/validate';
-import type { Adjustment, Bill, Category, LineItem, Member, Money, Split } from '../core/types';
+import type { Adjustment, Bill, Category, LineItem, Member, Money, Split, Trip } from '../core/types';
 import { CATEGORIES, CATEGORY_LABEL } from '../lib/format';
 import { lookupRate, loadRateTable, type RateTable } from '../lib/rates';
 import { newId, todayISO } from '../store/ids';
@@ -41,7 +41,9 @@ const STEP_TITLES = [
 
 const emptyAdjustment = (): Adjustment => ({ mode: 'none', value: 0, included: false });
 
-function blankBill(tripId: string): Bill {
+/** บิลใหม่หยิบสกุลเงินและอัตราที่ทริปจำไว้มาใช้ จะได้ไม่ต้องเลือกใหม่ทุกบิล */
+function blankBill(tripId: string, trip?: Trip): Bill {
+  const currency = trip?.defaultCurrency;
   return {
     id: newId('bill-'),
     tripId,
@@ -54,6 +56,8 @@ function blankBill(tripId: string): Bill {
     discount: emptyAdjustment(),
     payers: [],
     statedTotal: 0,
+    currency,
+    exchangeRate: currency ? trip?.rates?.[currency] : undefined,
   };
 }
 
@@ -70,7 +74,7 @@ export function BillEditorScreen() {
   const [bill, setBill] = useState<Bill>(() => {
     const draft = useTripStore.getState().drafts[draftKey];
     if (draft) return draft.bill;
-    return existing ? structuredClone(existing) : blankBill(tripId);
+    return existing ? structuredClone(existing) : blankBill(tripId, state.trips[tripId]);
   });
   const [step, setStep] = useState(() => useTripStore.getState().drafts[draftKey]?.step ?? 1);
   const [restored] = useState(() => Boolean(useTripStore.getState().drafts[draftKey]));
@@ -184,7 +188,7 @@ export function BillEditorScreen() {
       )}
 
       <div className="px-5 py-5">
-        {step === 1 && <StepHeader bill={bill} patch={patch} />}
+        {step === 1 && <StepHeader bill={bill} patch={patch} tripId={tripId} />}
         {step === 2 && <StepItems bill={bill} patch={patch} members={members} />}
         {step === 3 && <StepAssign bill={bill} patch={patch} members={members} />}
         {step === 4 && (
@@ -221,11 +225,14 @@ export function BillEditorScreen() {
         <span className="min-w-0 flex-1 pl-1">
           <span className="block text-2xs text-ink-soft">ยอดบนบิล</span>
           <Amount value={bill.statedTotal} size="lg" currency={bill.currency} />
-          {bill.currency && bill.currency !== HOME_CURRENCY && isUsableRate(bill.exchangeRate) && (
-            <span className="block text-2xs text-ink-soft">
-              ≈ {formatMoney(toHome(bill.statedTotal, bill.exchangeRate))} บาท
-            </span>
-          )}
+          {bill.statedTotal > 0 &&
+            bill.currency &&
+            bill.currency !== HOME_CURRENCY &&
+            isUsableRate(bill.exchangeRate) && (
+              <span className="block text-2xs text-ink-soft">
+                ≈ {formatMoney(toHome(bill.statedTotal, bill.exchangeRate))} บาท
+              </span>
+            )}
         </span>
         {step < 6 ? (
           <button type="button" className="btn-primary min-w-[9rem]" onClick={goNext}>
@@ -273,7 +280,15 @@ export function BillEditorScreen() {
 
 // ── Step 1 ───────────────────────────────────────────────────────────────
 
-function StepHeader({ bill, patch }: { bill: Bill; patch: (changes: Partial<Bill>) => void }) {
+function StepHeader({
+  bill,
+  patch,
+  tripId,
+}: {
+  bill: Bill;
+  patch: (changes: Partial<Bill>) => void;
+  tripId: string;
+}) {
   return (
     <div>
       <label className="block">
@@ -308,7 +323,7 @@ function StepHeader({ bill, patch }: { bill: Bill; patch: (changes: Partial<Bill
         ))}
       </div>
 
-      <CurrencyPicker bill={bill} patch={patch} />
+      <CurrencyPicker bill={bill} patch={patch} tripId={tripId} />
 
       <div className="mt-6">
         <TextField
@@ -339,9 +354,11 @@ function StepHeader({ bill, patch }: { bill: Bill; patch: (changes: Partial<Bill
 function CurrencyPicker({
   bill,
   patch,
+  tripId,
 }: {
   bill: Bill;
   patch: (changes: Partial<Bill>) => void;
+  tripId: string;
 }) {
   const code = bill.currency ?? HOME_CURRENCY;
   const foreign = code !== HOME_CURRENCY;
@@ -365,12 +382,28 @@ function CurrencyPicker({
     bill.exchangeRate?.from === suggestion.rate.from &&
     bill.exchangeRate?.to === suggestion.rate.to;
 
+  const trip = useTripStore((state) => state.trips[tripId]);
+
+  /**
+   * เปลี่ยนสกุลหรืออัตราในบิล ให้จำกลับไปที่ทริปด้วย
+   * บิลถัดไปในทริปเดียวกันจะได้ไม่ต้องตั้งใหม่ และปิดแอปเปิดใหม่ก็ยังอยู่
+   */
   const setCurrency = (next: string) => {
     if (next === HOME_CURRENCY) {
       patch({ currency: undefined, exchangeRate: undefined });
+      useTripStore.getState().setTripCurrency(tripId, undefined);
       return;
     }
-    patch({ currency: next, exchangeRate: bill.exchangeRate });
+    // สกุลใหม่ ใช้อัตราที่ทริปเคยจำไว้ของสกุลนั้นก่อน
+    patch({ currency: next, exchangeRate: trip?.rates?.[next] ?? bill.exchangeRate });
+    useTripStore.getState().setTripCurrency(tripId, next);
+  };
+
+  const setRate = (next: ExchangeRate) => {
+    patch({ exchangeRate: next });
+    if (code !== HOME_CURRENCY && next.from > 0 && next.to > 0) {
+      useTripStore.getState().setTripRate(tripId, code, next);
+    }
   };
 
   return (
@@ -403,7 +436,7 @@ function CurrencyPicker({
                 value={rate.from || null}
                 currency={code}
                 ariaLabel={`จำนวน${currencyOf(code).name}`}
-                onChange={(amount) => patch({ exchangeRate: { ...rate, from: amount ?? 0 } })}
+                onChange={(amount) => setRate({ ...rate, from: amount ?? 0 })}
               />
               <p className="mt-0.5 text-2xs text-ink-soft">{currencyOf(code).name}</p>
             </div>
@@ -412,7 +445,7 @@ function CurrencyPicker({
               <MoneyInput
                 value={rate.to || null}
                 ariaLabel="จำนวนบาท"
-                onChange={(amount) => patch({ exchangeRate: { ...rate, to: amount ?? 0 } })}
+                onChange={(amount) => setRate({ ...rate, to: amount ?? 0 })}
               />
               <p className="mt-0.5 text-2xs text-ink-soft">บาท</p>
             </div>
@@ -422,7 +455,7 @@ function CurrencyPicker({
               type="button"
               className="tap mt-2 text-left text-[13px] text-accent"
               disabled={Boolean(alreadyUsed)}
-              onClick={() => patch({ exchangeRate: suggestion.rate })}
+              onClick={() => setRate(suggestion.rate)}
             >
               {alreadyUsed ? (
                 <span className="text-ink-soft">
@@ -445,10 +478,15 @@ function CurrencyPicker({
           )}
 
           {foreign && (
-            <p className="mt-2 text-2xs text-ink-faint">
-              ถ้ารูดบัตรหรือแลกเงินมาได้เรตอื่น ให้กรอกเรตที่โดนจริงทับลงไป
-              ยอดหารจะได้ตรงกับเงินที่ออกจากกระเป๋าคนจ่าย
-            </p>
+            <>
+              <p className="mt-2 text-2xs text-ink-faint">
+                ถ้ารูดบัตรหรือแลกเงินมาได้เรตอื่น ให้กรอกเรตที่โดนจริงทับลงไป
+                ยอดหารจะได้ตรงกับเงินที่ออกจากกระเป๋าคนจ่าย
+              </p>
+              <Link to={`/trip/${tripId}/rate`} className="tap mt-1 block text-[13px] text-accent">
+                เปิดหน้าคิดอัตราแลกเปลี่ยน →
+              </Link>
+            </>
           )}
 
           {!isUsableRate(bill.exchangeRate) && (

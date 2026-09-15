@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { del, get, set } from 'idb-keyval';
+import type { ExchangeRate } from '../core/currency';
 import type {
   Bill,
   Member,
@@ -37,6 +38,9 @@ export interface TripState {
   renameTrip: (tripId: string, name: string) => void;
   archiveTrip: (tripId: string, archived: boolean) => void;
   deleteTrip: (tripId: string) => void;
+
+  setTripCurrency: (tripId: string, code: string | undefined) => void;
+  setTripRate: (tripId: string, code: string, rate: ExchangeRate) => void;
 
   addMember: (tripId: string, name: string) => string;
   renameMember: (memberId: string, name: string) => void;
@@ -193,6 +197,22 @@ export const useTripStore = create<TripState>()(
             settlements: filterByTrip(state.settlements),
             waivers: filterByTrip(state.waivers),
             drafts: filterByTrip(state.drafts),
+          };
+        }),
+
+      setTripCurrency: (tripId, code) =>
+        setState((state) => ({
+          trips: { ...state.trips, [tripId]: { ...state.trips[tripId], defaultCurrency: code } },
+        })),
+
+      setTripRate: (tripId, code, rate) =>
+        setState((state) => {
+          const trip = state.trips[tripId];
+          return {
+            trips: {
+              ...state.trips,
+              [tripId]: { ...trip, rates: { ...trip.rates, [code]: rate } },
+            },
           };
         }),
 

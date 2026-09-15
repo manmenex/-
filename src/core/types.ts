@@ -17,6 +17,17 @@ export interface Trip {
   createdAt: string;
   archivedAt?: string;
   memberIds: string[];
+
+  /**
+   * สกุลเงินตั้งต้นของบิลใหม่ในทริปนี้ ไม่ใส่ = บาท
+   * ไปเที่ยวญี่ปุ่นทั้งทริป จะได้ไม่ต้องเลือกเยนใหม่ทุกบิล
+   */
+  defaultCurrency?: string;
+  /**
+   * อัตราแลกเปลี่ยนที่จำไว้ แยกตามสกุล เผื่อทริปเดียวไปหลายประเทศ
+   * บิลใหม่หยิบไปใช้เป็นค่าตั้งต้น แก้รายบิลได้เสมอ
+   */
+  rates?: Record<string, ExchangeRate>;
 }
 
 export interface Member {

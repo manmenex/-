@@ -5,6 +5,7 @@ import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { SettleSheet, type SettlePrefill } from '../components/SettleSheet';
 import { formatBaht } from '../core/money';
+import { HOME_CURRENCY, currencyOf, formatMoney, isUsableRate } from '../core/currency';
 import type { Category } from '../core/types';
 import { CATEGORY_LABEL, formatDate } from '../lib/format';
 import { buildShareText, copyToClipboard } from '../lib/summary';
@@ -121,6 +122,29 @@ export function TripDashboardScreen() {
           </div>
         )}
       </section>
+
+      {/* อัตราแลกเปลี่ยนของทริป — โผล่เฉพาะทริปที่ใช้สกุลอื่น */}
+      {trip.defaultCurrency && trip.defaultCurrency !== HOME_CURRENCY && (
+        <Link
+          to={`/trip/${tripId}/rate`}
+          className="rule-solid flex items-baseline justify-between px-5 py-3 active:bg-paper-sunk"
+        >
+          <span className="text-[13px] text-ink-soft">
+            อัตราแลกเปลี่ยน · {currencyOf(trip.defaultCurrency).name}
+          </span>
+          <span className="tnum text-[13px]">
+            {isUsableRate(trip.rates?.[trip.defaultCurrency]) ? (
+              <>
+                {formatMoney(trip.rates![trip.defaultCurrency].from, trip.defaultCurrency)} ={' '}
+                {formatMoney(trip.rates![trip.defaultCurrency].to)} บาท
+                <span className="text-ink-faint"> →</span>
+              </>
+            ) : (
+              <span className="text-owed">ยังไม่ได้ตั้งอัตรา →</span>
+            )}
+          </span>
+        </Link>
+      )}
 
       {/* b) ตัวเลขภาพรวม */}
       <section className="rule-solid grid grid-cols-4 gap-2 px-5 py-3">

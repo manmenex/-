@@ -124,6 +124,45 @@ describe('tripStore', () => {
     expect(Object.keys(state.settlements)).toHaveLength(0);
   });
 
+  it('จำสกุลเงินและอัตราไว้ที่ทริป แยกตามสกุล', () => {
+    const store = useTripStore.getState();
+    const tripId = store.createTrip('ญี่ปุ่น', ['ก', 'ข']);
+
+    expect(useTripStore.getState().trips[tripId].defaultCurrency).toBeUndefined();
+
+    store.setTripCurrency(tripId, 'JPY');
+    store.setTripRate(tripId, 'JPY', { from: 1000, to: 21474 });
+    // ทริปเดียวไปหลายประเทศได้ อัตราต้องไม่ทับกัน
+    useTripStore.getState().setTripRate(tripId, 'KRW', { from: 10000, to: 24200 });
+
+    const trip = useTripStore.getState().trips[tripId];
+    expect(trip.defaultCurrency).toBe('JPY');
+    expect(trip.rates).toEqual({
+      JPY: { from: 1000, to: 21474 },
+      KRW: { from: 10000, to: 24200 },
+    });
+
+    // กลับไปใช้บาท อัตราที่จำไว้ต้องไม่หาย เผื่อสลับกลับมา
+    useTripStore.getState().setTripCurrency(tripId, undefined);
+    expect(useTripStore.getState().trips[tripId].defaultCurrency).toBeUndefined();
+    expect(useTripStore.getState().trips[tripId].rates?.JPY).toEqual({ from: 1000, to: 21474 });
+  });
+
+  it('สกุลเงินและอัตรารอด export/import', () => {
+    const store = useTripStore.getState();
+    const tripId = store.createTrip('ญี่ปุ่น', ['ก', 'ข']);
+    store.setTripCurrency(tripId, 'JPY');
+    useTripStore.getState().setTripRate(tripId, 'JPY', { from: 1000, to: 21474 });
+
+    const json = useTripStore.getState().exportJSON();
+    useTripStore.getState().resetAll();
+    expect(useTripStore.getState().importJSON(json, 'replace').ok).toBe(true);
+
+    const trip = useTripStore.getState().trips[tripId];
+    expect(trip.defaultCurrency).toBe('JPY');
+    expect(trip.rates?.JPY).toEqual({ from: 1000, to: 21474 });
+  });
+
   it('เก็บ draft ไว้แล้วเรียกกลับมาได้', () => {
     const store = useTripStore.getState();
     const tripId = store.createTrip('ทริป', ['โอ๊ค']);

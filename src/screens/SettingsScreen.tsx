@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { Sheet } from '../components/Sheet';
 import { noAutofill } from '../components/Inputs';
+import { currencyOf } from '../core/currency';
 import { selectTripMembers, useTripStore } from '../store/tripStore';
 
 export function SettingsScreen() {
@@ -106,6 +107,25 @@ export function SettingsScreen() {
               เพิ่ม
             </button>
           </div>
+        </section>
+      )}
+
+      {trip && (
+        <section className="mt-8 px-5">
+          <p className="text-2xs uppercase tracking-wide text-ink-soft">สกุลเงิน</p>
+          <Link
+            to={`/trip/${trip.id}/rate`}
+            className="mt-2 flex items-baseline justify-between border-b border-rule py-3 active:bg-paper-sunk"
+          >
+            <span className="text-[15px]">อัตราแลกเปลี่ยนของทริปนี้</span>
+            <span className="text-[13px] text-ink-soft">
+              {trip.defaultCurrency ? currencyOf(trip.defaultCurrency).name : 'บาท'}
+              <span className="text-ink-faint"> →</span>
+            </span>
+          </Link>
+          <p className="mt-1.5 text-2xs text-ink-soft">
+            ตั้งไว้แล้วบิลใหม่ในทริปนี้จะใช้สกุลและอัตรานี้เป็นค่าตั้งต้น
+          </p>
         </section>
       )}
 
