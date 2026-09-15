@@ -141,12 +141,17 @@ export function SettingsScreen() {
           <button
             type="button"
             className="btn-quiet w-full"
-            onClick={() => useTripStore.getState().archiveTrip(trip.id, !trip.archivedAt)}
+            onClick={() => {
+              const nowArchived = !trip.archivedAt;
+              useTripStore.getState().archiveTrip(trip.id, nowArchived);
+              // เก็บเข้าคลังแล้วทริปหายจากหน้าแรก พากลับไปดูเลยจะได้ไม่งงว่าหายไปไหน
+              navigate(nowArchived ? '/' : `/trip/${trip.id}`);
+            }}
           >
             {trip.archivedAt ? 'เอาออกจากคลัง' : 'เก็บทริปนี้เข้าคลัง'}
           </button>
           <p className="mt-1.5 text-2xs text-ink-soft">
-            ทริปที่เก็บเข้าคลังยังอยู่ครบ แค่ถูกเลื่อนไปท้ายรายการเพื่อไม่ให้เกะกะ
+            ทริปในคลังจะถูกซ่อนจากหน้าแรก ข้อมูลยังอยู่ครบ เปิดดูได้จากปุ่ม "ดูทริปในคลัง" ท้ายหน้าแรก
           </p>
 
           <button

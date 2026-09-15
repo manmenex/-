@@ -7,41 +7,62 @@ import { noAutofill } from '../components/Inputs';
 import { computeOutstanding } from '../core/settle';
 import { useTripStore, type TripState } from '../store/tripStore';
 
-export function TripListScreen() {
+/**
+ * ใช้ทั้งหน้าแรกและหน้าคลัง
+ * ทริปที่เก็บเข้าคลังถูกซ่อนออกจากหน้าแรกไปเลย ไม่ใช่แค่เลื่อนลงล่าง
+ * จะได้เหลือแต่ทริปที่กำลังใช้อยู่จริง
+ */
+export function TripListScreen({ archived = false }: { archived?: boolean }) {
   const navigate = useNavigate();
   const state = useTripStore();
   const [creating, setCreating] = useState(false);
 
-  const trips = useMemo(() => {
-    return Object.values(state.trips)
-      .sort((a, b) => {
-        // ทริปที่เก็บเข้าคลังแล้วไปอยู่ท้ายรายการ ที่เหลือเรียงใหม่ไปเก่า
-        const archived = Number(Boolean(a.archivedAt)) - Number(Boolean(b.archivedAt));
-        if (archived !== 0) return archived;
-        return a.createdAt < b.createdAt ? 1 : -1;
-      })
-      .map((trip) => ({ trip, summary: summarize(state, trip.id) }));
-  }, [state]);
+  const { trips, archivedCount } = useMemo(() => {
+    const all = Object.values(state.trips).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const wanted = all.filter((trip) => Boolean(trip.archivedAt) === archived);
+    return {
+      trips: wanted.map((trip) => ({ trip, summary: summarize(state, trip.id) })),
+      archivedCount: all.filter((trip) => Boolean(trip.archivedAt)).length,
+    };
+  }, [state, archived]);
 
   return (
-    <div className="min-h-dvh pb-24">
+    <div className={`min-h-dvh ${archived ? 'pb-10' : 'pb-24'}`}>
       <AppBar
-        title="หารบิลทริป"
+        title={archived ? 'ทริปในคลัง' : 'หารบิลทริป'}
+        back={archived ? '/' : undefined}
         action={
-          <Link to="/settings" className="tap flex items-center px-3 text-[13px] text-ink-soft">
-            ตั้งค่า
-          </Link>
+          archived ? undefined : (
+            <Link to="/settings" className="tap flex items-center px-3 text-[13px] text-ink-soft">
+              ตั้งค่า
+            </Link>
+          )
         }
       />
 
       {trips.length === 0 ? (
-        <div className="px-5 py-16 text-center">
-          <p className="text-[17px] font-medium">ยังไม่มีทริป</p>
-          <p className="mt-1 text-sm text-ink-soft">สร้างทริปแรก แล้วเริ่มเก็บบิลได้เลย</p>
-          <button type="button" className="btn-primary mt-6 w-full" onClick={() => setCreating(true)}>
-            สร้างทริปใหม่
-          </button>
-        </div>
+        archived ? (
+          <div className="px-5 py-16 text-center">
+            <p className="text-[17px] font-medium">ยังไม่มีทริปในคลัง</p>
+            <p className="mt-1 text-sm text-ink-soft">
+              ทริปที่เคลียร์จบแล้วเก็บเข้าคลังได้จากหน้าตั้งค่าของทริปนั้น
+            </p>
+          </div>
+        ) : (
+          <div className="px-5 py-16 text-center">
+            <p className="text-[17px] font-medium">
+              {archivedCount > 0 ? 'เก็บเข้าคลังหมดแล้ว' : 'ยังไม่มีทริป'}
+            </p>
+            <p className="mt-1 text-sm text-ink-soft">
+              {archivedCount > 0
+                ? 'ไม่มีทริปที่กำลังใช้อยู่'
+                : 'สร้างทริปแรก แล้วเริ่มเก็บบิลได้เลย'}
+            </p>
+            <button type="button" className="btn-primary mt-6 w-full" onClick={() => setCreating(true)}>
+              สร้างทริปใหม่
+            </button>
+          </div>
+        )
       ) : (
         <ul>
           {trips.map(({ trip, summary }) => (
@@ -54,7 +75,6 @@ export function TripListScreen() {
                   <span className="block truncate text-[16px] font-medium">{trip.name}</span>
                   <span className="mt-0.5 block text-2xs text-ink-soft">
                     {summary.memberCount} คน · {summary.billCount} บิล
-                    {trip.archivedAt ? ' · เก็บเข้าคลังแล้ว' : ''}
                   </span>
                 </span>
                 <span className="text-right">
@@ -75,11 +95,24 @@ export function TripListScreen() {
         </ul>
       )}
 
-      <div className="dock fixed inset-x-0 z-30 mx-auto max-w-[430px] border-t border-rule bg-paper/95 px-3 pt-3 backdrop-blur">
-        <button type="button" className="btn-primary w-full" onClick={() => setCreating(true)}>
-          สร้างทริปใหม่
-        </button>
-      </div>
+      {!archived && archivedCount > 0 && (
+        <Link
+          to="/archive"
+          className="tap flex items-center justify-center gap-1.5 px-5 py-5 text-[13px] text-ink-soft active:bg-paper-sunk"
+        >
+          ดูทริปในคลัง
+          <span className="tnum">({archivedCount})</span>
+          <span className="text-ink-faint">→</span>
+        </Link>
+      )}
+
+      {!archived && (
+        <div className="dock fixed inset-x-0 z-30 mx-auto max-w-[430px] border-t border-rule bg-paper/95 px-3 pt-3 backdrop-blur">
+          <button type="button" className="btn-primary w-full" onClick={() => setCreating(true)}>
+            สร้างทริปใหม่
+          </button>
+        </div>
+      )}
 
       <NewTripSheet
         open={creating}

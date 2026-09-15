@@ -27,6 +27,7 @@ export default function App() {
     <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-paper">
       <Routes>
         <Route path="/" element={<TripListScreen />} />
+        <Route path="/archive" element={<TripListScreen archived />} />
         <Route path="/settings" element={<SettingsScreen />} />
         <Route path="/share/:token" element={<SharedTripScreen />} />
         <Route path="/trip/:tripId" element={<TripDashboardScreen />} />
