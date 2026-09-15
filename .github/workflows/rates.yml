@@ -25,7 +25,7 @@ jobs:
 
       - name: ดึงอัตราจาก ธปท.
         env:
-          BOT_CLIENT_ID: ${{ secrets.BOT_CLIENT_ID }}
+          BOT_API_KEY: ${{ secrets.BOT_API_KEY }}
         run: node scripts/fetch-rates.mjs
 
       - name: commit ถ้ามีการเปลี่ยนแปลง

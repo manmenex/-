@@ -6,7 +6,7 @@
  *   2. API key จะหลุดไปอยู่ในเบราว์เซอร์ของทุกคนที่เปิดแอป
  *   3. แอปต้องใช้งานได้ตอนไม่มีเน็ต การยิงสดจึงใช้ไม่ได้อยู่ดี
  *
- * ต้องมี secret ชื่อ BOT_CLIENT_ID (Settings > Secrets and variables > Actions)
+ * ต้องมี secret ชื่อ BOT_API_KEY (Settings > Secrets and variables > Actions)
  *
  * สคริปต์นี้พังเสียงดังเมื่อ response ไม่ตรงกับที่คาด หรืออัตราหลุดช่วงที่เป็นไปได้
  * ดีกว่าเขียนไฟล์ที่เลขผิดแล้วไปโผล่ในแอปโดยไม่มีใครรู้
@@ -16,9 +16,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { BotRateError, buildTable, parseBotRates } from './bot-rates.mjs';
 
-const CLIENT_ID = process.env.BOT_CLIENT_ID;
+// รับได้ทั้งสองชื่อ เผื่อใครตั้ง secret ไว้ด้วยชื่อเดิมแล้ว
+const API_KEY = process.env.BOT_API_KEY || process.env.BOT_CLIENT_ID;
 const OUT = 'public/rates.json';
-const ENDPOINT = 'https://apigw1.bot.or.th/bot/public/Stat-ExchangeRate/v2/DAILY_AVG_EXG_RATE/';
+const ENDPOINT = 'https://gateway.api.bot.or.th/Stat-ExchangeRate/v2/DAILY_AVG_EXG_RATE/';
 
 /** ดึงย้อนหลังเท่านี้ พอให้บิลเก่าในทริปหาอัตราของวันตัวเองเจอ */
 const DAYS_BACK = Number(process.env.BOT_DAYS_BACK ?? 400);
@@ -35,13 +36,20 @@ const die = (message, extra) => {
 
 const isoDay = (date) => date.toISOString().slice(0, 10);
 
-if (!CLIENT_ID) {
+if (!API_KEY) {
   die(
-    'ไม่มี BOT_CLIENT_ID\n' +
-      'สมัคร key ที่ https://portal.api.bot.or.th แล้วใส่เป็น repo secret ชื่อ BOT_CLIENT_ID\n' +
+    'ไม่มี BOT_API_KEY\n' +
+      'สมัคร key ที่ https://portal.api.bot.or.th แล้วใส่เป็น repo secret ชื่อ BOT_API_KEY\n' +
       '(Settings > Secrets and variables > Actions > New repository secret)',
   );
 }
+
+/**
+ * ตัวอย่างในหน้า docs ของ ธปท. เขียนแค่ "Authorization: <key>" เฉยๆ
+ * แต่ key ที่ออกให้เป็น JWT ซึ่งตามปกติต้องมี scheme "Bearer" นำหน้า
+ * รองรับทั้งสองแบบ: ถ้าใส่ scheme มาเองแล้ว (มีช่องว่างคั่น) ใช้ตามนั้น ไม่งั้นเติม Bearer ให้
+ */
+const authorization = API_KEY.includes(' ') ? API_KEY : `Bearer ${API_KEY}`;
 
 const end = new Date();
 const start = new Date(end.getTime() - DAYS_BACK * 24 * 60 * 60 * 1000);
@@ -55,14 +63,22 @@ console.log(`ดึงอัตรา ${isoDay(start)} ถึง ${isoDay(end)}`
 let response;
 try {
   response = await fetch(url, {
-    headers: { 'X-IBM-Client-Id': CLIENT_ID, accept: 'application/json' },
+    headers: { Authorization: authorization, Accept: '*/*' },
   });
 } catch (error) {
   die(`ต่อ ธปท. ไม่ได้: ${error.message}`);
 }
 
 const text = await response.text();
-if (!response.ok) die(`ธปท. ตอบ HTTP ${response.status}`, text);
+if (!response.ok) {
+  const hint =
+    response.status === 401 || response.status === 403
+      ? '\nkey ไม่ผ่าน — เช็กว่าคัดลอกครบ ยังไม่หมดอายุ และ subscribe API ตัวนี้ไว้แล้ว'
+      : response.status === 400
+        ? '\nพารามิเตอร์อาจไม่ตรง ดูชื่อพารามิเตอร์ที่ถูกต้องในหน้า docs แล้วแก้ที่ url.searchParams'
+        : '';
+  die(`ธปท. ตอบ HTTP ${response.status}${hint}`, text);
+}
 
 let payload;
 try {
