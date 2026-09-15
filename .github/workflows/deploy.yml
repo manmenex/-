@@ -1,8 +1,12 @@
 name: Deploy to GitHub Pages
 
 on:
+  # deploy เฉพาะ main เท่านั้น
+  # environment github-pages ล็อกไว้ให้ deploy ได้จาก default branch อยู่แล้ว
+  # ถ้าให้ branch อื่นรันด้วย มันจะ fail ทุกครั้ง แล้วยังไปแย่ง concurrency group
+  # จน run ของ main โดนยกเลิกทิ้ง ซึ่งเคยทำให้ไฟล์อัตราไม่ขึ้นเว็บมาแล้ว
   push:
-    branches: [claude/multi-payer-settlement-system-jaweia, main]
+    branches: [main]
   workflow_dispatch:
   # GitHub จงใจไม่ trigger workflow จาก push ที่ใช้ GITHUB_TOKEN (กันลูปไม่รู้จบ)
   # ไฟล์อัตราที่ bot commit เข้ามาจึงไม่เคยถูก deploy ต้องดักที่ตอน workflow นั้นจบแทน

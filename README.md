@@ -101,11 +101,15 @@ test ที่ `src/lib/__tests__/botRates.test.ts` ใช้ response จริ
 
 ## Deploy
 
-push ขึ้น branch แล้ว GitHub Actions จะ build และ deploy ขึ้น GitHub Pages ให้เอง
+push ขึ้น **main** แล้ว GitHub Actions จะ build และ deploy ขึ้น GitHub Pages ให้เอง
 (`.github/workflows/deploy.yml`) โดยจะรัน test กับ typecheck ก่อน ถ้าเลขผิดจะไม่ deploy
 
 **ครั้งแรกต้องเปิด Pages ด้วยมือก่อน** ที่หน้า repo: Settings → Pages → Source เลือก **GitHub Actions**
 (GITHUB_TOKEN ของ workflow ไม่มีสิทธิ์สร้าง Pages site ให้เอง) หลังจากนั้น push ทุกครั้ง deploy เองอัตโนมัติ
+
+deploy รันจาก `main` เท่านั้น — environment `github-pages` ล็อกไว้ให้ deploy ได้จาก
+default branch อยู่แล้ว ถ้าปล่อยให้ branch อื่นรันด้วย นอกจากจะ fail ทุกครั้ง
+ยังไปแย่ง concurrency group จน run ของ main โดนยกเลิกทิ้ง
 
 `base: './'` กับ HashRouter ทำให้แอปทำงานได้ทั้งตอนเปิดจาก subpath
 (`/-/` ตามชื่อ repo) และตอนเปิดจากไฟล์ในเครื่อง
