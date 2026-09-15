@@ -1,0 +1,41 @@
+name: Update exchange rates
+
+on:
+  schedule:
+    # ธปท. ประกาศอัตราเฉลี่ยรายวันช่วงเย็น ดึงตอนตี 1 ไทย (18:00 UTC วันก่อนหน้า)
+    - cron: '0 18 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rates
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: ดึงอัตราจาก ธปท.
+        env:
+          BOT_CLIENT_ID: ${{ secrets.BOT_CLIENT_ID }}
+        run: node scripts/fetch-rates.mjs
+
+      - name: commit ถ้ามีการเปลี่ยนแปลง
+        run: |
+          if git diff --quiet public/rates.json; then
+            echo "อัตราเหมือนเดิม ไม่ต้อง commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/rates.json
+          git commit -m "chore: อัปเดตอัตราแลกเปลี่ยนจาก ธปท."
+          git push

@@ -20,6 +20,7 @@ import { computeOutstanding } from '../core/settle';
 import { validateBill } from '../core/validate';
 import type { Adjustment, Bill, Category, LineItem, Member, Money, Split } from '../core/types';
 import { CATEGORIES, CATEGORY_LABEL } from '../lib/format';
+import { lookupRate, loadRateTable, type RateTable } from '../lib/rates';
 import { newId, todayISO } from '../store/ids';
 import {
   selectTripBills,
@@ -346,6 +347,24 @@ function CurrencyPicker({
   const foreign = code !== HOME_CURRENCY;
   const rate: ExchangeRate = bill.exchangeRate ?? { from: 0, to: 0 };
 
+  // ตารางอัตราอ้างอิงที่แถมมากับแอป ไม่มีก็แค่ไม่มีปุ่มช่วยกรอก กรอกเองได้เหมือนเดิม
+  const [table, setTable] = useState<RateTable | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void loadRateTable().then((loaded) => {
+      if (!cancelled) setTable(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const suggestion = foreign ? lookupRate(table, code, bill.date) : null;
+  const alreadyUsed =
+    suggestion &&
+    bill.exchangeRate?.from === suggestion.rate.from &&
+    bill.exchangeRate?.to === suggestion.rate.to;
+
   const setCurrency = (next: string) => {
     if (next === HOME_CURRENCY) {
       patch({ currency: undefined, exchangeRate: undefined });
@@ -398,6 +417,40 @@ function CurrencyPicker({
               <p className="mt-0.5 text-2xs text-ink-soft">บาท</p>
             </div>
           </div>
+          {suggestion && (
+            <button
+              type="button"
+              className="tap mt-2 text-left text-[13px] text-accent"
+              disabled={Boolean(alreadyUsed)}
+              onClick={() => patch({ exchangeRate: suggestion.rate })}
+            >
+              {alreadyUsed ? (
+                <span className="text-ink-soft">
+                  ใช้อัตรา {table?.source || 'อ้างอิง'} ของวันที่ {suggestion.usedDate} อยู่
+                  {suggestion.usedDate !== bill.date.slice(0, 10) && ' (วันทำการล่าสุดก่อนวันที่บิล)'}
+                </span>
+              ) : (
+                <>
+                  ใช้อัตรา {table?.source || 'อ้างอิง'}{' '}
+                  {formatMoney(suggestion.rate.from, code)} {currencyOf(code).name} ={' '}
+                  {formatMoney(suggestion.rate.to)} บาท
+                  <span className="mt-0.5 block text-2xs text-ink-faint">
+                    ของวันที่ {suggestion.usedDate}
+                    {suggestion.usedDate !== bill.date.slice(0, 10) &&
+                      ' — วันทำการล่าสุดก่อนวันที่บิล'}
+                  </span>
+                </>
+              )}
+            </button>
+          )}
+
+          {foreign && (
+            <p className="mt-2 text-2xs text-ink-faint">
+              ถ้ารูดบัตรหรือแลกเงินมาได้เรตอื่น ให้กรอกเรตที่โดนจริงทับลงไป
+              ยอดหารจะได้ตรงกับเงินที่ออกจากกระเป๋าคนจ่าย
+            </p>
+          )}
+
           {!isUsableRate(bill.exchangeRate) && (
             <p className="mt-2 text-2xs text-owed">ยังกรอกอัตราแลกเปลี่ยนไม่ครบ บันทึกบิลไม่ได้</p>
           )}
