@@ -151,3 +151,81 @@ describe('parseBotRates กับ response จริง', () => {
     );
   });
 });
+
+// @ts-expect-error — สคริปต์ build-time เป็น .mjs ไม่มี type declaration
+import { MAX_WINDOW_DAYS, mergeCurrencies, splitWindows } from '../../../scripts/bot-rates.mjs';
+
+describe('splitWindows', () => {
+  it('ธปท. จำกัด 31 วันต่อคำขอ ต้องซอยให้ไม่เกิน', () => {
+    const windows = splitWindows('2025-08-11', '2026-09-15');
+    expect(windows.length).toBe(13);
+    for (const window of windows) {
+      const days =
+        (new Date(`${window.end}T00:00:00Z`).getTime() -
+          new Date(`${window.start}T00:00:00Z`).getTime()) /
+          86400000 +
+        1;
+      expect(days).toBeLessThanOrEqual(MAX_WINDOW_DAYS);
+    }
+  });
+
+  it('ช่วงสั้นกว่าลิมิตได้คำขอเดียว และครอบคลุมทั้งช่วงแบบไม่ซ้อนไม่ขาด', () => {
+    expect(splitWindows('2026-09-01', '2026-09-15')).toEqual([
+      { start: '2026-09-01', end: '2026-09-15' },
+    ]);
+    const windows = splitWindows('2026-01-01', '2026-03-31');
+    expect(windows[0].start).toBe('2026-01-01');
+    expect(windows[windows.length - 1].end).toBe('2026-03-31');
+    for (let i = 1; i < windows.length; i += 1) {
+      const prevEnd = new Date(`${windows[i - 1].end}T00:00:00Z`).getTime();
+      const start = new Date(`${windows[i].start}T00:00:00Z`).getTime();
+      expect(start - prevEnd).toBe(86400000); // ต่อกันพอดี วันเดียว
+    }
+  });
+
+  it('วันเดียวกันได้ 1 ช่วง ย้อนกลับได้ศูนย์ช่วง', () => {
+    expect(splitWindows('2026-09-15', '2026-09-15')).toHaveLength(1);
+    expect(splitWindows('2026-09-15', '2026-09-01')).toHaveLength(0);
+  });
+});
+
+describe('mergeCurrencies', () => {
+  it('รวมของเดิมกับของใหม่ ของใหม่ทับวันที่ซ้ำ', () => {
+    const merged = mergeCurrencies(
+      { JPY: { unit: 1000, days: { '2026-09-01': 21000, '2026-09-11': 99999 } } },
+      { JPY: { unit: 1000, days: { '2026-09-11': 21474, '2026-09-14': 21610 } } },
+    );
+    expect(merged.JPY.days).toEqual({
+      '2026-09-01': 21000,
+      '2026-09-11': 21474,
+      '2026-09-14': 21610,
+    });
+  });
+
+  it('ตัดวันที่เก่าเกินกำหนดทิ้ง ไฟล์จะได้ไม่โตขึ้นเรื่อยๆ', () => {
+    const merged = mergeCurrencies(
+      { JPY: { unit: 1000, days: { '2024-01-01': 20000, '2026-09-11': 21474 } } },
+      {},
+      '2026-01-01',
+    );
+    expect(Object.keys(merged.JPY.days)).toEqual(['2026-09-11']);
+  });
+
+  it('unit เปลี่ยน ต้องทิ้งข้อมูลเก่าของสกุลนั้น ไม่ให้สองมาตรฐานปนกัน', () => {
+    const merged = mergeCurrencies(
+      {
+        JPY: { unit: 100, days: { '2026-09-01': 2147 } },
+        USD: { unit: 1000, days: { '2026-09-01': 33122 } },
+      },
+      { JPY: { unit: 1000, days: { '2026-09-15': 21474 } } },
+    );
+    expect(merged.JPY).toEqual({ unit: 1000, days: { '2026-09-15': 21474 } });
+    // สกุลที่ unit ไม่เปลี่ยนต้องไม่โดนหางเลข
+    expect(merged.USD).toEqual({ unit: 1000, days: { '2026-09-01': 33122 } });
+  });
+
+  it('สกุลที่ไม่เหลือวันไหนเลยถูกตัดออกจากตาราง', () => {
+    const merged = mergeCurrencies({ JPY: { unit: 1000, days: { '2020-01-01': 1 } } }, {}, '2026-01-01');
+    expect(merged.JPY).toBeUndefined();
+  });
+});

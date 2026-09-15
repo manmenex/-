@@ -131,3 +131,56 @@ export function buildTable(currencies, fetchedAt) {
     ),
   };
 }
+
+/** ธปท. จำกัดช่วงวันที่ต่อคำขอไว้ 31 วัน ขอเกินนี้จะได้ HTTP 400 */
+export const MAX_WINDOW_DAYS = 31;
+
+const dayMs = 24 * 60 * 60 * 1000;
+export const isoDay = (date) => new Date(date).toISOString().slice(0, 10);
+
+/**
+ * ซอยช่วงวันที่ออกเป็นก้อนละไม่เกิน MAX_WINDOW_DAYS
+ * คืนเป็นก้อนเรียงจากเก่าไปใหม่
+ */
+export function splitWindows(startDay, endDay, maxDays = MAX_WINDOW_DAYS) {
+  const windows = [];
+  let cursor = new Date(`${startDay}T00:00:00Z`).getTime();
+  const end = new Date(`${endDay}T00:00:00Z`).getTime();
+  if (!Number.isFinite(cursor) || !Number.isFinite(end) || cursor > end) return windows;
+
+  while (cursor <= end) {
+    const stop = Math.min(cursor + (maxDays - 1) * dayMs, end);
+    windows.push({ start: isoDay(cursor), end: isoDay(stop) });
+    cursor = stop + dayMs;
+  }
+  return windows;
+}
+
+/**
+ * รวมข้อมูลเดิมกับข้อมูลใหม่ แล้วตัดวันที่เก่าเกินกำหนดทิ้ง
+ *
+ * ถ้า unit ของสกุลไหนเปลี่ยนไป (เพราะแก้ WANTED) ต้องทิ้งข้อมูลเดิมของสกุลนั้น
+ * ไม่งั้นในไฟล์เดียวกันจะมีตัวเลขสองมาตรฐานปนกันโดยไม่มีอะไรบอก
+ */
+export function mergeCurrencies(existing = {}, fresh = {}, keepFromDay) {
+  const merged = {};
+  const codes = new Set([...Object.keys(existing), ...Object.keys(fresh)]);
+
+  for (const code of codes) {
+    const before = existing[code];
+    const after = fresh[code];
+    const unit = after?.unit ?? before?.unit;
+    if (!unit) continue;
+
+    const days = {};
+    if (before && before.unit === unit) Object.assign(days, before.days);
+    if (after) Object.assign(days, after.days);
+
+    const kept = Object.fromEntries(
+      Object.entries(days).filter(([day]) => !keepFromDay || day >= keepFromDay),
+    );
+    if (Object.keys(kept).length > 0) merged[code] = { unit, days: kept };
+  }
+
+  return merged;
+}
