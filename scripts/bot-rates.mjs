@@ -35,12 +35,19 @@ export class BotRateError extends Error {
 
 /**
  * ธปท. ประกาศ "กี่บาทต่อ N หน่วยของสกุลนั้น" โดย N อยู่ในวงเล็บท้ายชื่อสกุล
- * เช่น "JAPAN : YEN (100)" = บาทต่อ 100 เยน  ไม่มีวงเล็บถือว่าต่อ 1 หน่วย
+ *
+ * รูปแบบจริงจาก API (ไม่ใช่แค่ตัวเลขเปล่าๆ ในวงเล็บ):
+ *   "USA : DOLLAR (USD) "                     -> ต่อ 1 ดอลลาร์
+ *   "JAPAN : YEN (100 YEN) (JPY) "            -> ต่อ 100 เยน
+ *   "INDONESIA : RUPIAH (1,000 RUPIAH) (IDR)" -> ต่อ 1,000 รูเปีย (มีคอมมาด้วย)
+ *
+ * จึงต้องมองหาวงเล็บที่ "ขึ้นต้นด้วยตัวเลข" เท่านั้น
+ * วงเล็บที่เป็นรหัสสกุล เช่น (USD) (JPY) ต้องไม่ถูกจับ
  */
 export function quotedPerUnit(nameEng) {
-  const match = /\((\d+)\)/.exec(String(nameEng ?? ''));
+  const match = /\((\d[\d,]*)\s*[^)]*\)/.exec(String(nameEng ?? ''));
   if (!match) return 1;
-  const value = Number(match[1]);
+  const value = Number(match[1].replace(/,/g, ''));
   if (!Number.isFinite(value) || value <= 0) return null;
   return value;
 }
