@@ -41,8 +41,11 @@ const FILES = [
   // ตัว worker ที่ tesseract.js เรียกใช้
   [join(tesseractDir, 'dist', 'worker.min.js'), 'worker.min.js'],
   ...CORES.map((name) => [join(coreDir, name), name]),
-  // โมเดลภาษาอังกฤษ พอสำหรับอ่านตัวเลข ไม่ต้องใช้โมเดลไทยซึ่งใหญ่กว่าเท่าตัว
+  // อังกฤษ: อ่านตัวเลขบนสลิป โหลดตัวเดียวพอตอนสแกนเฉพาะยอด
   [require.resolve('@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz'), 'eng.traineddata.gz'],
+  // ไทย: ต้องมีตอนแกะรายการในใบเสร็จ ไม่งั้นอ่านชื่อเมนูไม่ออกเลย
+  // เล็กกว่าอังกฤษสามเท่า โหลดเพิ่มเฉพาะตอนกดสแกนรายการ
+  [require.resolve('@tesseract.js-data/tha/4.0.0_best_int/tha.traineddata.gz'), 'tha.traineddata.gz'],
 ];
 
 await mkdir(OUT, { recursive: true });

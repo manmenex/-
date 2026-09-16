@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatMoney } from '../core/currency';
 import type { Money } from '../core/types';
+import { PhotoPicker } from './PhotoAttach';
 import { loadPhoto } from '../store/photos';
 import type { AmountCandidate } from '../lib/ocr';
 
@@ -27,6 +28,12 @@ export function ScanAmount({
   const [state, setState] = useState<'idle' | 'working' | 'done'>('idle');
   const [candidates, setCandidates] = useState<AmountCandidate[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [picked, setPicked] = useState(photoIds[0]);
+
+  // ลบรูปที่เลือกไว้ทิ้ง ให้ตกไปที่รูปแรกที่ยังเหลือ ไม่งั้นกดอ่านแล้วไม่มีอะไรเกิดขึ้น
+  useEffect(() => {
+    if (photoIds.length > 0 && !photoIds.includes(picked)) setPicked(photoIds[0]);
+  }, [photoIds, picked]);
 
   if (photoIds.length === 0) return null;
 
@@ -36,21 +43,10 @@ export function ScanAmount({
     setCandidates([]);
     try {
       const { readAmounts, releaseOcr } = await import('../lib/ocr');
-      const found: AmountCandidate[] = [];
-      for (const id of photoIds) {
-        const blob = await loadPhoto(id);
-        if (!blob) continue;
-        found.push(...(await readAmounts(blob)));
-      }
+      const blob = await loadPhoto(picked);
+      const ranked = blob ? await readAmounts(blob) : [];
       // ปล่อย worker ทันที กิน RAM หลายสิบเมกะไบต์ มือถือเครื่องเล็กจะสะดุด
       await releaseOcr();
-
-      const best = new Map<number, AmountCandidate>();
-      for (const entry of found) {
-        const existing = best.get(entry.value);
-        if (!existing || entry.score > existing.score) best.set(entry.value, entry);
-      }
-      const ranked = [...best.values()].sort((a, b) => b.score - a.score || b.value - a.value);
 
       setCandidates(ranked);
       setState('done');
@@ -75,6 +71,17 @@ export function ScanAmount({
       >
         {state === 'working' ? 'กำลังอ่านรูป…' : state === 'done' ? 'อ่านรูปอีกครั้ง' : hint}
       </button>
+
+      <PhotoPicker
+        ids={photoIds}
+        selected={picked}
+        onSelect={(id) => {
+          setPicked(id);
+          setCandidates([]);
+          setState('idle');
+          setError(null);
+        }}
+      />
 
       {state === 'working' && (
         <p className="mt-1 text-2xs text-ink-faint">

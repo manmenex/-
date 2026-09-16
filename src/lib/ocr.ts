@@ -1,4 +1,5 @@
 import { parseBaht } from '../core/money';
+import { parseReceipt, type ParsedReceipt, type ReceiptLine } from './receipt';
 import type { Money } from '../core/types';
 
 /**
@@ -99,24 +100,38 @@ function ocrBase(): string {
   return new URL(`${import.meta.env.BASE_URL}ocr/`, document.baseURI).href;
 }
 
-let workerPromise: Promise<import('tesseract.js').Worker> | null = null;
+/**
+ * มีสองโหมด เพราะต้องการคนละอย่าง
+ * - 'amount' อ่านเฉพาะตัวเลข ใช้อังกฤษตัวเดียว เร็วและแม่นกว่าสำหรับยอดบนสลิป
+ * - 'receipt' อ่านข้อความไทยด้วย ต้องโหลดโมเดลไทยเพิ่ม ใช้ตอนแกะรายการในใบเสร็จ
+ * เปิดค้างไว้ทีละโหมด สลับโหมดเมื่อไหร่ก็ปิดตัวเก่าทิ้ง worker กิน RAM หลายสิบเมกะไบต์
+ */
+type OcrMode = 'amount' | 'receipt';
 
-async function getWorker() {
+let workerPromise: Promise<import('tesseract.js').Worker> | null = null;
+let workerMode: OcrMode | null = null;
+
+async function getWorker(mode: OcrMode) {
+  if (workerPromise && workerMode !== mode) await releaseOcr();
   if (!workerPromise) {
+    workerMode = mode;
     workerPromise = (async () => {
       const { createWorker } = await import('tesseract.js');
       const base = ocrBase();
-      const worker = await createWorker('eng', 1, {
+      const worker = await createWorker(mode === 'receipt' ? ['tha', 'eng'] : 'eng', 1, {
         workerPath: `${base}worker.min.js`,
         corePath: base,
         langPath: base,
         gzip: true,
       });
-      // อ่านเฉพาะตัวเลข ตัวอักษรไทยไม่ได้ใช้และทำให้ผลเพี้ยนกว่าเดิม
-      await worker.setParameters({ tessedit_char_whitelist: '0123456789.,' });
+      if (mode === 'amount') {
+        // อ่านเฉพาะตัวเลข ตัวอักษรไม่ได้ใช้และทำให้ผลเพี้ยนกว่าเดิม
+        await worker.setParameters({ tessedit_char_whitelist: '0123456789.,' });
+      }
       return worker;
     })().catch((error) => {
       workerPromise = null;
+      workerMode = null;
       throw error;
     });
   }
@@ -125,9 +140,37 @@ async function getWorker() {
 
 /** อ่านตัวเลขจากรูป คืนตัวเลือกให้ผู้ใช้แตะเลือกเอง */
 export async function readAmounts(image: Blob): Promise<AmountCandidate[]> {
-  const worker = await getWorker();
+  const worker = await getWorker('amount');
   const { data } = await worker.recognize(image);
   return extractAmounts(data.text);
+}
+
+/**
+ * อ่านใบเสร็จทั้งใบ — ชื่อร้าน รายการ ค่าธรรมเนียม ยอดสุทธิ
+ *
+ * ขอผลแบบมีตำแหน่งบรรทัด (blocks) ไม่ใช่ข้อความล้วน เพราะต้องรู้ว่า
+ * ชื่อรายการกับราคาอยู่บรรทัดเดียวกัน ข้อความล้วนจะปนกันจนแยกไม่ออก
+ */
+export async function readReceipt(image: Blob): Promise<ParsedReceipt> {
+  const worker = await getWorker('receipt');
+  const { data } = await worker.recognize(image, {}, { text: true, blocks: true });
+  return parseReceipt(linesOf(data));
+}
+
+function linesOf(data: { blocks?: unknown }): ReceiptLine[] {
+  const lines: ReceiptLine[] = [];
+  type Line = { text?: string; bbox?: { y0?: number } };
+  type Para = { lines?: Line[] };
+  type Block = { paragraphs?: Para[] };
+  for (const block of (data.blocks as Block[] | null | undefined) ?? []) {
+    for (const paragraph of block.paragraphs ?? []) {
+      for (const line of paragraph.lines ?? []) {
+        const text = String(line.text ?? '').trim();
+        if (text) lines.push({ text, y: line.bbox?.y0 ?? lines.length });
+      }
+    }
+  }
+  return lines;
 }
 
 /** ปล่อย worker ทิ้ง — กิน RAM หลายสิบเมกะไบต์ ไม่ควรค้างไว้หลังใช้เสร็จ */
@@ -135,6 +178,7 @@ export async function releaseOcr(): Promise<void> {
   if (!workerPromise) return;
   const pending = workerPromise;
   workerPromise = null;
+  workerMode = null;
   try {
     await (await pending).terminate();
   } catch {

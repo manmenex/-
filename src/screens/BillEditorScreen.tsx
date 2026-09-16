@@ -5,6 +5,7 @@ import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { MoneyInput, QuantityInput, Stepper, TextField, noAutofill } from '../components/Inputs';
 import { PhotoAttach } from '../components/PhotoAttach';
+import { ReceiptScanner } from '../components/ReceiptScanner';
 import { ScanAmount } from '../components/ScanAmount';
 import { Sheet } from '../components/Sheet';
 import { WheelOfFate } from '../components/WheelOfFate';
@@ -199,7 +200,14 @@ export function BillEditorScreen() {
 
       <div className="px-5 py-5">
         {step === 1 && <StepHeader bill={bill} patch={patch} tripId={tripId} />}
-        {step === 2 && <StepItems bill={bill} patch={patch} members={members} />}
+        {step === 2 && (
+          <StepItems
+            bill={bill}
+            patch={patch}
+            members={members}
+            onTotalTouched={() => setTotalTouched(true)}
+          />
+        )}
         {step === 3 && <StepAssign bill={bill} patch={patch} members={members} />}
         {step === 4 && (
           <StepFees
@@ -525,10 +533,12 @@ function StepItems({
   bill,
   patch,
   members,
+  onTotalTouched,
 }: {
   bill: Bill;
   patch: (changes: Partial<Bill>) => void;
   members: Member[];
+  onTotalTouched: () => void;
 }) {
   const [name, setName] = useState('');
   const [price, setPrice] = useState<Money | null>(null);
@@ -599,9 +609,22 @@ function StepItems({
         </button>
       </div>
 
+      {(bill.photoIds?.length ?? 0) > 0 && (
+        <div className="mt-3">
+          <ReceiptScanner
+            bill={bill}
+            members={members}
+            patch={patch}
+            onTotalTouched={onTotalTouched}
+          />
+        </div>
+      )}
+
       {bill.items.length === 0 ? (
         <p className="py-10 text-center text-sm text-ink-soft">
-          ยังไม่มีรายการ พิมพ์ชื่อกับราคาแล้วกด + ได้เลย
+          {(bill.photoIds?.length ?? 0) > 0
+            ? 'ยังไม่มีรายการ กดสแกนจากรูปบิล หรือพิมพ์ชื่อกับราคาแล้วกด +'
+            : 'ยังไม่มีรายการ พิมพ์ชื่อกับราคาแล้วกด + ได้เลย'}
         </p>
       ) : (
         <ul className="mt-5">

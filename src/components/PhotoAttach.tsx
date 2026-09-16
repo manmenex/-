@@ -165,6 +165,47 @@ export function PhotoThumb({ id }: { id: string }) {
   return <img src={url} alt="" className="h-full w-full object-cover" />;
 }
 
+/**
+ * เลือกว่าจะอ่านรูปไหน — โผล่เฉพาะตอนแนบไว้หลายรูป
+ * แนบรูปบิลกับรูปสลิปไว้ด้วยกัน แล้วสั่งอ่านทั้งคู่จะได้ตัวเลขปนกันมั่ว
+ */
+export function PhotoPicker({
+  ids,
+  selected,
+  onSelect,
+}: {
+  ids: string[];
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
+  if (ids.length < 2) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-2xs text-ink-soft">อ่านจากรูปไหน</p>
+      <ul className="mt-1 flex flex-wrap gap-2">
+        {ids.map((id, index) => {
+          const active = id === selected;
+          return (
+            <li key={id}>
+              <button
+                type="button"
+                aria-pressed={active}
+                aria-label={`อ่านจากรูปที่ ${index + 1}`}
+                className={`block h-16 w-16 overflow-hidden border-2 ${
+                  active ? 'border-accent' : 'border-rule opacity-50'
+                }`}
+                onClick={() => onSelect(id)}
+              >
+                <PhotoThumb id={id} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /** รูปย่อแบบอ่านอย่างเดียว กดแล้วเปิดเต็มจอ ใช้ในหน้าที่แก้ไขไม่ได้ */
 export function PhotoLightbox({ id, label = 'ดูรูป', size = 36 }: { id: string; label?: string; size?: number }) {
   const [open, setOpen] = useState(false);
