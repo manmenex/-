@@ -151,3 +151,30 @@ export function splitAllItems(items: LineItem[]): ItemsBreakdown {
   return { subtotalByMember, subtotal, perItem };
 }
 
+export interface PartialSplit {
+  /** ผลรวมจากเฉพาะรายการที่ระบุครบแล้ว */
+  breakdown: ItemsBreakdown;
+  /** รายการที่ยังระบุไม่ครบ ข้ามไปก่อน */
+  pending: LineItem[];
+}
+
+/**
+ * กระจายเฉพาะรายการที่ระบุครบแล้ว รายการที่ยังไม่ครบข้ามไปก่อน
+ *
+ * มีไว้ให้หน้า "ใครกินอะไร" โชว์สรุปรายคนได้ระหว่างทาง ไม่ต้องรอให้ครบทุกรายการ
+ * ห้ามเอาไปใช้ตอนคิดยอดจริง เพราะยอดรวมจะไม่เท่ากับยอดบิลจนกว่าจะระบุครบ
+ * ตัวที่ใช้คิดจริงคือ splitAllItems ซึ่งยังโยน error เมื่อมีรายการไม่ครบเหมือนเดิม
+ */
+export function splitAssignedItems(items: LineItem[]): PartialSplit {
+  const ready: LineItem[] = [];
+  const pending: LineItem[] = [];
+  for (const item of items ?? []) {
+    try {
+      splitAllItems([item]);
+      ready.push(item);
+    } catch {
+      pending.push(item);
+    }
+  }
+  return { breakdown: splitAllItems(ready), pending };
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ROUNDING_TOLERANCE, computeBillShares } from '../computeBill';
 import { sumShares } from '../money';
-import { B, MAN, MEMBERS, OAK, WOO, bill, equal, item, personal } from './factories';
+import { B, MAN, MEMBERS, OAK, WOO, bill, byUnit, equal, item, personal } from './factories';
 
 describe('computeBillShares — ลำดับการคำนวณ', () => {
   it('ส่วนลดกระจายตามสัดส่วนก่อน แล้วค่อย SC แล้วค่อย VAT', () => {
@@ -135,5 +135,36 @@ describe('computeBillShares — Step 5 ตรวจสอบและปรั�
     const result = computeBillShares(b, MEMBERS);
     expect(sumShares(result.shares)).toBe(B(302));
     expect(result.status).toBe('ok');
+  });
+});
+
+/**
+ * เคสจากผู้ใช้จริง: สแกนบิลได้ 11 รายการรวม 855 บาท แล้วไประบุ "แบ่งไม่เท่ากัน"
+ * แต่ใส่จำนวนต่อคนยังไม่ครบ ผลคือทั้งบิลคำนวณเป็น 0
+ * หน้ารายการโชว์ "รวม 11 รายการ 855.00" แต่แถบล่างโชว์ "ยอดบนบิล 0.00" พร้อมกัน
+ */
+describe('รายการที่ระบุคนไม่ครบ', () => {
+  const brokenBill = () =>
+    bill({
+      items: [
+        item('โดนัทช็อกโกแลต', 55, equal(OAK, MAN)),
+        // ระบุไว้ 1 ชิ้น แต่รายการมี 2 ชิ้น -> กระจายไม่ได้
+        { ...item('โดนัทพิสตาชิโอ', 100, byUnit({ [OAK]: 1 }), 2), id: 'broken' },
+      ],
+      statedTotal: B(255),
+    });
+
+  it('ยังบอกยอดรวมของรายการตามที่พิมพ์ไว้ ไม่ใช่ 0', () => {
+    const result = computeBillShares(brokenBill(), MEMBERS);
+    expect(result.audit.subtotal).toBe(B(255));
+    expect(result.audit.computedTotal).toBe(B(255));
+  });
+
+  it('ยังบันทึกไม่ได้ และบอกว่ารายการไหนมีปัญหา', () => {
+    const result = computeBillShares(brokenBill(), MEMBERS);
+    expect(result.status).toBe('invalid');
+    expect(result.ok).toBe(false);
+    expect(result.issues[0].code).toBe('itemSplit');
+    expect(result.issues[0].itemId).toBe('broken');
   });
 });

@@ -19,7 +19,7 @@ import {
   toHome,
   type ExchangeRate,
 } from '../core/currency';
-import { lineTotalOf } from '../core/splitItems';
+import { lineTotalOf, splitAssignedItems } from '../core/splitItems';
 import { computeOutstanding } from '../core/settle';
 import { validateBill } from '../core/validate';
 import type { Adjustment, Bill, Category, LineItem, Member, Money, Split, Trip } from '../core/types';
@@ -732,6 +732,57 @@ function StepAssign({
           onChange={(split) => setSplit(item.id, split)}
         />
       ))}
+
+      <AssignRunningTotal bill={bill} members={members} />
+    </div>
+  );
+}
+
+/**
+ * สรุปรายคนระหว่างทาง คิดจากเฉพาะรายการที่ระบุครบแล้ว
+ *
+ * เดิมต้องระบุให้ครบทุกรายการก่อนถึงจะเห็นตัวเลขอะไรเลย บิลยาวๆ อย่าง 11 รายการ
+ * จึงกรอกไปลุ้นไป ไม่รู้ว่าที่ทำมาถูกไหมจนถึงหน้าสุดท้าย
+ * ตรงนี้ไม่ใช่ยอดสุดท้าย และบอกชัดว่ายังเหลืออีกกี่รายการ
+ */
+function AssignRunningTotal({ bill, members }: { bill: Bill; members: Member[] }) {
+  const { breakdown, pending } = useMemo(() => splitAssignedItems(bill.items), [bill.items]);
+  const shares = breakdown.subtotalByMember;
+  const assigned = bill.items.length - pending.length;
+
+  if (assigned === 0) return null;
+
+  return (
+    <div className="rule-solid pt-4">
+      <div className="flex items-baseline justify-between">
+        <p className="text-2xs uppercase tracking-wide text-ink-soft">
+          {pending.length === 0 ? 'สรุปรายคน' : 'สรุปเท่าที่ระบุแล้ว'}
+        </p>
+        <p className="text-2xs text-ink-faint">
+          ระบุแล้ว {assigned}/{bill.items.length} รายการ
+        </p>
+      </div>
+
+      <ul className="mt-1">
+        {members.map((member) => (
+          <li key={member.id} className="flex items-center gap-2 border-b border-rule py-2">
+            <Avatar member={member} size={24} dimmed={!shares[member.id]} />
+            <span className="min-w-0 flex-1 truncate text-[15px]">{member.name}</span>
+            <Amount value={shares[member.id] ?? 0} size="md" currency={bill.currency} />
+          </li>
+        ))}
+        <li className="rule-dashed mt-1 flex items-baseline justify-between pt-2">
+          <span className="text-[13px] text-ink-soft">รวมรายการที่ระบุแล้ว</span>
+          <Amount value={breakdown.subtotal} size="lg" currency={bill.currency} />
+        </li>
+      </ul>
+
+      {pending.length > 0 && (
+        <p className="mt-2 text-2xs text-ink-soft">
+          ยังเหลืออีก {pending.length} รายการที่ยังระบุไม่ครบ ยอดนี้จึงยังไม่ใช่ยอดสุดท้าย
+          และยังไม่รวมค่าบริการกับ VAT
+        </p>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { HOME_CURRENCY, isUsableRate, toHome } from './currency';
-import { allocateTo, formatBaht, percentOf, sumShares } from './money';
-import { SplitError, splitAllItems, type ItemsBreakdown } from './splitItems';
+import { allocateTo, formatBaht, percentOf, sumMoney, sumShares } from './money';
+import { SplitError, lineTotalOf, splitAllItems, type ItemsBreakdown } from './splitItems';
 import type { Adjustment, Bill, Member, Money } from './types';
 
 /**
@@ -415,16 +415,25 @@ function skippedStep(
   };
 }
 
+/**
+ * audit ตอนที่กระจายรายการไม่สำเร็จ
+ *
+ * ยังต้องบอกยอดรวมของรายการตามที่พิมพ์ไว้ ไม่ใช่ 0
+ * เดิมคืน 0 ทำให้หน้าจอขัดกันเอง: หน้ารายการโชว์ "รวม 11 รายการ 855.00"
+ * แต่แถบล่างโชว์ "ยอดบนบิล 0.00" ซึ่งดูเหมือนแอปพัง ทั้งที่แค่ยังระบุคนไม่ครบ
+ * บิลยังบันทึกไม่ได้เหมือนเดิม แต่ตัวเลขที่เห็นต้องไม่โกหก
+ */
 function emptyAudit(bill: Bill): BillAudit {
+  const subtotal = sumMoney(bill.items.map(lineTotalOf));
   return {
     steps: [],
     itemBreakdown: [],
-    subtotal: 0,
+    subtotal,
     discountTotal: 0,
     serviceChargeTotal: 0,
     vatTotal: 0,
-    computedTotal: 0,
+    computedTotal: subtotal,
     statedTotal: bill.statedTotal,
-    difference: bill.statedTotal,
+    difference: bill.statedTotal - subtotal,
   };
 }

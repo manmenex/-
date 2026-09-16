@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SplitError, lineTotalOf, participantsOf, splitAllItems, splitLineItem } from '../splitItems';
+import { SplitError, lineTotalOf, participantsOf, splitAllItems, splitAssignedItems, splitLineItem } from '../splitItems';
 import { sumShares } from '../money';
 import { B, MAN, OAK, WOO, byRatio, byUnit, equal, excluded, item, personal } from './factories';
 
@@ -78,5 +78,38 @@ describe('splitAllItems', () => {
     expect(breakdown.subtotal).toBe(B(476));
     expect(breakdown.subtotalByMember).toEqual({ [OAK]: B(189), [MAN]: B(98), [WOO]: B(189) });
     expect(breakdown.perItem).toHaveLength(4);
+  });
+});
+
+describe('splitAssignedItems — สรุประหว่างทาง', () => {
+  it('คิดเฉพาะรายการที่ระบุครบ ข้ามรายการที่ยังไม่ครบ', () => {
+    const ready = item('ข้าว', 300, equal(OAK, MAN, WOO));
+    const notReady = { ...item('ปีกไก่', 100, byUnit({ [OAK]: 1 }), 3), id: 'pending' };
+
+    const { breakdown, pending } = splitAssignedItems([ready, notReady]);
+
+    expect(pending.map((entry) => entry.id)).toEqual(['pending']);
+    expect(breakdown.subtotal).toBe(B(300));
+    expect(breakdown.subtotalByMember[OAK]).toBe(B(100));
+  });
+
+  it('ยังไม่ระบุอะไรเลย = ยอดเป็นศูนย์ ไม่ใช่ throw', () => {
+    const notReady = item('ปีกไก่', 100, byUnit({ [OAK]: 1 }), 3);
+    const { breakdown, pending } = splitAssignedItems([notReady]);
+
+    expect(pending).toHaveLength(1);
+    expect(breakdown.subtotal).toBe(0);
+  });
+
+  it('ระบุครบทุกรายการ = ได้ผลเท่ากับ splitAllItems', () => {
+    const items = [item('ข้าว', 302, equal(OAK, MAN, WOO)), item('น้ำ', 60, personal(WOO))];
+    const { breakdown, pending } = splitAssignedItems(items);
+
+    expect(pending).toHaveLength(0);
+    expect(breakdown.subtotalByMember).toEqual(splitAllItems(items).subtotalByMember);
+  });
+
+  it('รายการว่างเปล่าไม่ทำให้พัง', () => {
+    expect(splitAssignedItems([]).breakdown.subtotal).toBe(0);
   });
 });
