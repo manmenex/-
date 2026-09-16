@@ -1,4 +1,5 @@
 import { parseBaht } from '../core/money';
+import { splitLineTotal } from './itemEntry';
 import type { Money } from '../core/types';
 
 /**
@@ -393,10 +394,9 @@ function toItem(label: string, lineTotal: Money, unitPrice: Money | null): Recei
     }
   }
 
-  if (quantity > 1 && lineTotal % quantity === 0) {
-    return { name, quantity, unitPrice: lineTotal / quantity, lineTotal };
-  }
-  return { name: name || label, quantity: 1, unitPrice: lineTotal, lineTotal };
+  // กฎเดียวกับตอนพิมพ์เอง เลขเดียวกันต้องเข้าบิลแบบเดียวกันไม่ว่ามาทางไหน
+  const split = splitLineTotal(lineTotal, quantity);
+  return { name: name || label, quantity: split.quantity, unitPrice: split.unitPrice, lineTotal };
 }
 
 function splitQuantity(label: string): { name: string; quantity: number } {

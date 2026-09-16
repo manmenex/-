@@ -24,6 +24,7 @@ import { computeOutstanding } from '../core/settle';
 import { validateBill } from '../core/validate';
 import type { Adjustment, Bill, Category, LineItem, Member, Money, Split, Trip } from '../core/types';
 import { CATEGORIES, CATEGORY_LABEL } from '../lib/format';
+import { splitLineTotal } from '../lib/itemEntry';
 import { payersAfterTreat } from '../lib/treat';
 import { lookupRate, loadRateTable, type RateTable } from '../lib/rates';
 import { newId, todayISO } from '../store/ids';
@@ -544,6 +545,12 @@ function StepItems({
   const [price, setPrice] = useState<Money | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /**
+   * ใบเสร็จพิมพ์ยอดรวมของบรรทัด คนกรอกจึงอ่านเลขนั้นมาใส่เป็นปกติ
+   * ตั้งต้นเป็น "รวม" จึงตรงกับสิ่งที่คนเห็นอยู่ตรงหน้ามากกว่า
+   * ตอนจำนวน 1 ชิ้นสองโหมดให้ผลเหมือนกัน ตัวเลือกจึงโผล่เฉพาะตอนมีหลายชิ้น
+   */
+  const [priceMode, setPriceMode] = useState<'total' | 'unit'>('total');
   const nameRef = useRef<HTMLInputElement>(null);
 
   // แก้รายการที่เพิ่มไปแล้วได้ในที่เดิม ไม่ต้องลบทิ้งแล้วพิมพ์ใหม่ทั้งบรรทัด
@@ -553,13 +560,21 @@ function StepItems({
     });
   };
 
+  // โหมด "รวม" ตีความราคาที่กรอกเป็นยอดรวมของบรรทัด แล้วหารเป็นราคาต่อชิ้นให้
+  const entry =
+    price === null
+      ? null
+      : priceMode === 'total'
+        ? splitLineTotal(price, quantity)
+        : { unitPrice: price, quantity, merged: false };
+
   const add = () => {
-    if (price === null) return;
+    if (!entry) return;
     const item: LineItem = {
       id: newId('item-'),
       name: name.trim() || 'รายการ',
-      unitPrice: price,
-      quantity,
+      unitPrice: entry.unitPrice,
+      quantity: entry.quantity,
       split: { mode: 'equal', memberIds: members.map((member) => member.id) },
     };
     patch({ items: [...bill.items, item] });
@@ -586,17 +601,18 @@ function StepItems({
             if (event.key === 'Enter') add();
           }}
         />
+        {/* จำนวนมาก่อนราคา เพราะต้องรู้จำนวนก่อนถึงจะตีความราคาที่กรอกได้ */}
+        <div className="w-16">
+          <QuantityInput value={quantity} onChange={setQuantity} />
+        </div>
         <div className="w-24">
           <MoneyInput
             value={price}
             currency={bill.currency}
             onChange={setPrice}
             onEnter={add}
-            ariaLabel="ราคา"
+            ariaLabel={priceMode === 'total' ? 'ราคารวม' : 'ราคาต่อชิ้น'}
           />
-        </div>
-        <div className="w-16">
-          <QuantityInput value={quantity} onChange={setQuantity} />
         </div>
         <button
           type="button"
@@ -608,6 +624,38 @@ function StepItems({
           +
         </button>
       </div>
+
+      {/*
+        เลือกได้ว่าเลขที่กรอกคือยอดรวมของบรรทัดหรือราคาต่อชิ้น
+        โผล่เฉพาะตอนมีหลายชิ้น เพราะชิ้นเดียวสองโหมดให้ผลเหมือนกัน
+      */}
+      {quantity > 1 && (
+        <div className="mt-2">
+          <div className="flex gap-1.5">
+            {(['total', 'unit'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={priceMode === mode}
+                className={`tap border px-3 text-[13px] ${
+                  priceMode === mode ? 'border-ink bg-ink text-paper' : 'border-rule text-ink-soft'
+                }`}
+                onClick={() => setPriceMode(mode)}
+              >
+                {mode === 'total' ? 'ราคาที่กรอก = ยอดรวม' : 'ราคาที่กรอก = ต่อชิ้น'}
+              </button>
+            ))}
+          </div>
+
+          {entry && (
+            <p className="mt-1.5 text-2xs text-ink-soft">
+              {entry.merged
+                ? `${formatMoney(price ?? 0, bill.currency)} ÷ ${quantity} ไม่ลงตัว — จะบันทึกเป็นรายการเดียว ${formatMoney(price ?? 0, bill.currency)} แบ่งรายชิ้นไม่ได้`
+                : `${formatMoney(entry.unitPrice, bill.currency)} ต่อชิ้น × ${entry.quantity} = ${formatMoney(entry.unitPrice * entry.quantity, bill.currency)}`}
+            </p>
+          )}
+        </div>
+      )}
 
       {(bill.photoIds?.length ?? 0) > 0 && (
         <div className="mt-3">
