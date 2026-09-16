@@ -5,6 +5,7 @@ import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { MoneyInput, QuantityInput, Stepper, TextField, noAutofill } from '../components/Inputs';
 import { PhotoAttach } from '../components/PhotoAttach';
+import { ScanAmount } from '../components/ScanAmount';
 import { Sheet } from '../components/Sheet';
 import { WheelOfFate } from '../components/WheelOfFate';
 import { sumMoney, sumShares } from '../core/money';
@@ -1062,6 +1063,16 @@ function StatedTotalField({
           ต่างจากที่คำนวณได้ {formatMoney(Math.abs(difference), bill.currency)}
         </p>
       )}
+
+      <ScanAmount
+        photoIds={bill.photoIds ?? []}
+        currency={bill.currency}
+        hint="อ่านยอดจากรูปบิล"
+        onPick={(amount) => {
+          onTotalTouched();
+          patch({ statedTotal: amount });
+        }}
+      />
     </div>
   );
 }

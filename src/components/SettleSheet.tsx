@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PhotoAttach } from './PhotoAttach';
+import { ScanAmount } from './ScanAmount';
 import { Sheet } from './Sheet';
 import { MoneyInput, TextField } from './Inputs';
 import { Amount } from './Amount';
@@ -186,6 +187,11 @@ export function SettleSheet({
 
           <div className="mt-5">
             <PhotoAttach label="สลิปโอน" ids={slipIds} onChange={setSlipIds} max={1} />
+            <ScanAmount
+              photoIds={slipIds}
+              hint="อ่านยอดจากสลิป"
+              onPick={setAmount}
+            />
           </div>
         </>
       )}

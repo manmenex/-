@@ -29,8 +29,27 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,json,webmanifest}'],
+        /**
+         * ไฟล์ของ tesseract รวมกัน 8.5 MB ถ้า precache ไว้ ทุกคนที่เปิดแอป
+         * ต้องโหลดทั้งก้อนตั้งแต่ครั้งแรก ทั้งที่ส่วนใหญ่ไม่ได้ใช้ปุ่มสแกน
+         * ให้โหลดตอนกดสแกนครั้งแรก แล้ว cache ไว้ใช้ครั้งต่อไปและตอนออฟไลน์แทน
+         */
+        globIgnores: ['**/ocr/**'],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/ocr\//],
         cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/ocr/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'ocr-engine',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 180 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],
