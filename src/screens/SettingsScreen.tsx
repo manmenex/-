@@ -183,10 +183,8 @@ export function SettingsScreen() {
       */}
       <section className="mt-8 px-5">
         <p className="text-2xs uppercase tracking-wide text-ink-soft">เวอร์ชันแอป</p>
-        <p className="tnum mt-1 text-[13px] text-ink-soft">
-          {formatBuildTime(BUILD_INFO.time)}
-          {BUILD_INFO.commit !== 'local' && ` · ${BUILD_INFO.commit}`}
-        </p>
+        <p className="mt-1 text-[17px] font-semibold">v{BUILD_INFO.version}</p>
+        <p className="tnum text-2xs text-ink-soft">{formatBuildTime(BUILD_INFO.time)}</p>
 
         <button
           type="button"
@@ -202,7 +200,12 @@ export function SettingsScreen() {
           {updateState === 'checking' ? 'กำลังตรวจ…' : 'ตรวจหาเวอร์ชันใหม่'}
         </button>
         {updateState === 'latest' && (
-          <p className="mt-1.5 text-2xs text-settled">ใช้เวอร์ชันล่าสุดอยู่แล้ว</p>
+          <p className="mt-1.5 text-2xs text-ink-soft">
+            ตรวจแล้ว ยังไม่เจอเวอร์ชันใหม่
+            <span className="mt-0.5 block text-ink-faint">
+              เพิ่ง deploy ใหม่อาจต้องรอสักครู่กว่าจะมาถึงเครื่องนี้ เจอแล้วแอปจะอัปเดตเอง
+            </span>
+          </p>
         )}
         {updateState === 'failed' && (
           <p className="mt-1.5 text-2xs text-ink-soft">

@@ -58,6 +58,6 @@ export function setupAppUpdates(): void {
 
 /** เวอร์ชันที่กำลังรันอยู่ ใช้ตอบคำถามว่า "อัปเดตแล้วหรือยัง" ได้ในวินาทีเดียว */
 export const BUILD_INFO = {
+  version: __APP_VERSION__,
   time: __BUILD_TIME__,
-  commit: __BUILD_COMMIT__,
 };

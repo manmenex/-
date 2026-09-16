@@ -3,5 +3,5 @@
 
 /** เวลาที่ build ไฟล์ชุดนี้ (ISO) ฝังตอน build โดย vite.config.ts */
 declare const __BUILD_TIME__: string;
-/** commit ที่ build มาจาก 7 ตัวแรก หรือ "local" เมื่อ build ในเครื่อง */
-declare const __BUILD_COMMIT__: string;
+/** เลขเวอร์ชันแอป เช่น "1.1.38" — เลขท้ายคือจำนวน commit */
+declare const __APP_VERSION__: string;

@@ -1,5 +1,7 @@
 /// <reference types="vitest" />
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
+import pkg from './package.json';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -7,12 +9,27 @@ import { VitePWA } from 'vite-plugin-pwa';
  * ฝังข้อมูลว่า build ชุดนี้มาจากไหน เพื่อให้ตอบได้ทันทีว่าเครื่องนั้นรันเวอร์ชันไหนอยู่
  * เคยเสียเวลาเดากันหลายรอบว่า deploy ขึ้นแล้วหรือยัง
  */
-// ไม่ได้ลง @types/node ไว้ และไม่อยากลงเพิ่มเพื่อบรรทัดเดียว
-declare const process: { env: Record<string, string | undefined> };
+/**
+ * เลขเวอร์ชัน = major.minor จาก package.json + จำนวน commit เป็นเลขท้าย
+ *
+ * เลือกแบบนี้เพราะเลขท้ายเพิ่มเองทุกครั้งที่ commit ไม่ต้องมานั่งจำว่าต้องบวกเอง
+ * และมันเทียบกันได้ทันทีว่าเครื่องไหนเก่ากว่ากัน ซึ่งเป็นคำถามที่ถามบ่อยสุด
+ * (CI ต้องตั้ง fetch-depth: 0 ไม่งั้นนับ commit ได้ 1 เพราะ clone มาแบบตื้น)
+ */
+function appVersion(): string {
+  const [major = '1', minor = '0'] = String(pkg.version ?? '1.0').split('.');
+  let build = '0';
+  try {
+    build = execSync('git rev-list --count HEAD', { encoding: 'utf8' }).trim() || '0';
+  } catch {
+    // ไม่มี git ก็ยังต้อง build ได้ แค่ไม่มีเลขท้ายที่มีความหมาย
+  }
+  return `${major}.${minor}.${build}`;
+}
 
 const buildInfo = {
   __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
-  __BUILD_COMMIT__: JSON.stringify((process.env.GITHUB_SHA ?? 'local').slice(0, 7)),
+  __APP_VERSION__: JSON.stringify(appVersion()),
 };
 
 export default defineConfig({
