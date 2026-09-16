@@ -67,6 +67,14 @@ export default defineConfig({
          * ให้โหลดตอนกดสแกนครั้งแรก แล้ว cache ไว้ใช้ครั้งต่อไปและตอนออฟไลน์แทน
          */
         globIgnores: ['**/ocr/**'],
+        /**
+         * ต้องสั่งเองทั้งคู่ ไม่พึ่งค่าตั้งต้นของ plugin
+         * sw.js ที่ build ออกมาก่อนหน้านี้มีแต่ skipWaiting ไม่มี clientsClaim
+         * ผลคือ SW ตัวใหม่ทำงานแล้วจริง แต่ไม่เข้าควบคุมหน้าที่เปิดค้างอยู่
+         * หน้าเดิมจึงยังกินไฟล์เก่าจากแคชต่อไปเรื่อยๆ
+         */
+        skipWaiting: true,
+        clientsClaim: true,
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/ocr\//],

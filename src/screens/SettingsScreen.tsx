@@ -1,11 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { Sheet } from '../components/Sheet';
 import { noAutofill } from '../components/Inputs';
 import { currencyOf } from '../core/currency';
-import { BUILD_INFO, checkForUpdate } from '../lib/appUpdate';
+import { BUILD_INFO, applyUpdate, checkForUpdate, forceReload, onUpdateReady } from '../lib/appUpdate';
 import { photosInUse, selectTripMembers, useTripStore } from '../store/tripStore';
 
 export function SettingsScreen() {
@@ -26,6 +26,10 @@ export function SettingsScreen() {
   const photoCount = useMemo(() => photosInUse(state).size, [state]);
   const [exporting, setExporting] = useState(false);
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'latest' | 'failed'>('idle');
+  const [updateReady, setUpdateReady] = useState(false);
+  const [stuck, setStuck] = useState(false);
+
+  useEffect(() => onUpdateReady(setUpdateReady), []);
 
   const exportFile = async () => {
     setExporting(true);
@@ -186,24 +190,37 @@ export function SettingsScreen() {
         <p className="mt-1 text-[17px] font-semibold">v{BUILD_INFO.version}</p>
         <p className="tnum text-2xs text-ink-soft">{formatBuildTime(BUILD_INFO.time)}</p>
 
-        <button
-          type="button"
-          className="btn-quiet mt-3 w-full"
-          disabled={updateState === 'checking'}
-          onClick={async () => {
-            setUpdateState('checking');
-            const ok = await checkForUpdate(true);
-            // มีของใหม่จริง แอปจะติดตั้งแล้วรีโหลดเอง ข้อความนี้จึงได้เห็นเฉพาะตอนที่ใหม่อยู่แล้ว
-            setUpdateState(ok ? 'latest' : 'failed');
-          }}
-        >
-          {updateState === 'checking' ? 'กำลังตรวจ…' : 'ตรวจหาเวอร์ชันใหม่'}
-        </button>
-        {updateState === 'latest' && (
+        {updateReady ? (
+          <>
+            <button type="button" className="btn-primary mt-3 w-full" onClick={applyUpdate}>
+              อัปเดตเดี๋ยวนี้
+            </button>
+            <p className="mt-1.5 text-2xs text-ink-soft">
+              ดาวน์โหลดเวอร์ชันใหม่เสร็จแล้ว แตะเพื่อเริ่มใช้
+            </p>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn-quiet mt-3 w-full"
+            disabled={updateState === 'checking'}
+            onClick={async () => {
+              setUpdateState('checking');
+              const ok = await checkForUpdate(true);
+              // เช็กเสร็จไม่ได้แปลว่าเจอของใหม่ทันที ตัวติดตั้งใช้เวลาอีกสักพัก
+              // ถ้าเจอ onUpdateReady จะเปลี่ยนปุ่มนี้เป็น "อัปเดตเดี๋ยวนี้" ให้เอง
+              setUpdateState(ok ? 'latest' : 'failed');
+            }}
+          >
+            {updateState === 'checking' ? 'กำลังตรวจ…' : 'ตรวจหาเวอร์ชันใหม่'}
+          </button>
+        )}
+
+        {!updateReady && updateState === 'latest' && (
           <p className="mt-1.5 text-2xs text-ink-soft">
             ตรวจแล้ว ยังไม่เจอเวอร์ชันใหม่
             <span className="mt-0.5 block text-ink-faint">
-              เพิ่ง deploy ใหม่อาจต้องรอสักครู่กว่าจะมาถึงเครื่องนี้ เจอแล้วแอปจะอัปเดตเอง
+              เพิ่ง deploy ใหม่อาจต้องรอสักครู่กว่าจะมาถึงเครื่องนี้
             </span>
           </p>
         )}
@@ -211,6 +228,35 @@ export function SettingsScreen() {
           <p className="mt-1.5 text-2xs text-ink-soft">
             ตรวจไม่ได้ตอนนี้ ลองใหม่ตอนต่อเน็ต หรือปิดแอปแล้วเปิดใหม่
           </p>
+        )}
+
+        {/*
+          ทางออกสุดท้ายเมื่อ service worker ค้างจนกดอัปเดตแล้วก็ยังได้ของเก่า
+          เจอมาแล้วบน iOS Safari และทำซ้ำในเครื่องทดสอบไม่ได้ จึงต้องมีปุ่มนี้ไว้
+        */}
+        <button
+          type="button"
+          className="tap mt-3 text-[13px] text-accent"
+          onClick={() => setStuck((current) => !current)}
+        >
+          กดอัปเดตแล้วยังเป็นเวอร์ชันเดิม?
+        </button>
+        {stuck && (
+          <div className="mt-2 border-l-2 border-rule px-3 py-2">
+            <p className="text-[13px] text-ink-soft">
+              ล้างไฟล์แอปที่ค้างอยู่แล้วโหลดใหม่ทั้งหมด
+              <span className="mt-0.5 block text-2xs">
+                ทริป บิล และรูปทั้งหมด<strong>ไม่หาย</strong> ล้างเฉพาะไฟล์ตัวแอป
+              </span>
+            </p>
+            <button
+              type="button"
+              className="btn-quiet mt-2 w-full"
+              onClick={() => void forceReload()}
+            >
+              บังคับโหลดใหม่
+            </button>
+          </div>
         )}
       </section>
 
