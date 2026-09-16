@@ -59,7 +59,13 @@ export function ReceiptScanner({
       await releaseOcr();
       setParsed(found);
       setState('done');
-      setSkipped(new Set());
+      /**
+       * ติ๊กให้ล่วงหน้าเฉพาะตอนที่รายการบวกกันแล้วตรงกับยอดบนใบเสร็จพอดี
+       * ไม่ตรง = อ่านตกหรืออ่านเกินแน่ๆ ห้ามชวนให้กดยืนยันรัวๆ
+       * หลักเดียวกับที่บิลบล็อกการบันทึกเมื่อยอดไม่ตรง แทนที่จะปัดเศษกลบ
+       */
+      const all = found?.items.map((_, index) => index) ?? [];
+      setSkipped(found?.reconciled ? new Set() : new Set(all));
       if (!found || found.items.length === 0) {
         setError('แกะรายการจากรูปนี้ไม่ออก ลองถ่ายให้ตรงและสว่างขึ้น หรือพิมพ์เอง');
       }
@@ -236,6 +242,45 @@ export function ReceiptScanner({
                 <span className="text-[13px] text-ink-soft">ยอดสุทธิบนใบเสร็จ</span>
                 <span className="tnum text-[17px] font-semibold">
                   {formatMoney(parsed.total, bill.currency)}
+                </span>
+              </p>
+            )}
+
+            {parsed.items.length > 0 && (
+              <div
+                className={`mt-3 border-l-2 px-3 py-2 text-[13px] ${
+                  parsed.reconciled
+                    ? 'border-settled bg-[#F4F7EE] text-settled'
+                    : 'border-owed bg-accent-soft text-owed'
+                }`}
+              >
+                {parsed.reconciled ? (
+                  <>
+                    รายการบวกกันแล้วตรงกับยอดบนใบเสร็จพอดี
+                    <span className="mt-0.5 block text-2xs text-ink-soft">
+                      แปลว่าอ่านครบ ไม่ตกบรรทัดไหน
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    รายการบวกกันแล้วไม่ตรงกับยอดบนใบเสร็จ
+                    <span className="mt-0.5 block text-2xs text-ink-soft">
+                      อ่านตกหรืออ่านเกินไปบางบรรทัด จึงยังไม่ติ๊กให้
+                      ตรวจทีละรายการแล้วติ๊กเองเฉพาะอันที่ตรงกับใบจริง
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {chosen.length > 0 && (
+              <p className="mt-3 flex items-baseline justify-between text-[13px]">
+                <span className="text-ink-soft">รวมรายการที่ติ๊กไว้</span>
+                <span className="tnum font-medium">
+                  {formatMoney(
+                    chosen.reduce((total, entry) => total + entry.lineTotal, 0),
+                    bill.currency,
+                  )}
                 </span>
               </p>
             )}

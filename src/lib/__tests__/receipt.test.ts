@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseReceipt, type ReceiptLine } from '../receipt';
+import vetReceipt from './fixtures/vet-receipt.json';
 import { B } from '../../core/__tests__/factories';
 
 /**
@@ -141,8 +142,8 @@ describe('ใบเสร็จรูปแบบอื่น', () => {
   });
 
   it('ใบเสร็จว่างเปล่าไม่ทำให้พัง', () => {
-    expect(parseReceipt([])).toEqual({ items: [] });
-    expect(parseReceipt(lines(['', 0], ['   ', 10]))).toEqual({ items: [] });
+    expect(parseReceipt([])).toEqual({ items: [], reconciled: false });
+    expect(parseReceipt(lines(['', 0], ['   ', 10]))).toEqual({ items: [], reconciled: false });
   });
 
   it('เรียงตามตำแหน่งบนรูป ไม่ใช่ลำดับที่ส่งเข้ามา', () => {
@@ -151,5 +152,66 @@ describe('ใบเสร็จรูปแบบอื่น', () => {
     );
     expect(parsed.shopName).toBe('ร้านตามลำดับ');
     expect(parsed.items.map((entry) => entry.name)).toEqual(['ต้มยำ', 'ข้าว']);
+  });
+});
+
+/**
+ * ใบเสร็จจริงใบแรกที่เอาไปลองแล้วพัง — ใบกำกับภาษีของบริษัท พิมพ์ด้วยดอตเมทริกซ์
+ * บนกระดาษก๊อปปี้สีฟ้า ถ่ายเอียงมีเงา และเป็นตารางหลายคอลัมน์
+ * (รหัสสินค้า | รายการ | จำนวน | หน่วย | ราคาต่อหน่วย | จำนวนเงินสุทธิ)
+ *
+ * fixture คือผลที่ OCR อ่านออกมาจริงทั้งดุ้น รวมขยะทุกบรรทัด ไม่ได้คัดออก
+ * ของจริงบนใบ: 5 รายการมียอด + 1 รายการของแถม รวม 11,695.20 บาท
+ */
+describe('ใบกำกับภาษีจริง (ตารางหลายคอลัมน์)', () => {
+  const parsed = parseReceipt(vetReceipt as unknown as ReceiptLine[]);
+
+  it('ได้ 5 รายการที่มียอด ไม่มีที่อยู่ร้านหรือบรรทัดรวมเงินปนมา', () => {
+    // เดิมได้ 9 รายการ มีที่อยู่ ("หมู่ 2 ถนนวงแหวน...") และบรรทัดรวมเงินสามใบปนมาด้วย
+    expect(parsed.items).toHaveLength(5);
+  });
+
+  it('ยอดรายการตรงกับที่พิมพ์บนใบทุกบรรทัด', () => {
+    expect(parsed.items.map((entry) => entry.lineTotal)).toEqual([
+      B(806.4),
+      B(806.4),
+      B(3391.2),
+      B(3391.2),
+      B(3300),
+    ]);
+  });
+
+  it('ได้ยอดสุทธิถูก ทั้งที่ OCR อ่านคำว่า "รวมเงิน" เพี้ยนเป็น "Reference th"', () => {
+    // หาจุดจบของรายการด้วยการบวกเลข ไม่ได้พึ่งคำว่า "รวม"
+    expect(parsed.total).toBe(B(11695.2));
+  });
+
+  it('รายการบวกกันแล้วตรงกับยอดสุทธิพอดี', () => {
+    const sum = parsed.items.reduce((total, entry) => total + entry.lineTotal, 0);
+    expect(sum).toBe(B(11695.2));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  it('หาจำนวนชิ้นจากคอลัมน์ราคาต่อหน่วย ไม่ใช่จากชื่อ', () => {
+    // 806.40 ÷ 100.80 = 8 เป๊ะ แม่นกว่าอ่านเลข "8" ในคอลัมน์จำนวนซึ่ง OCR มองไม่เห็นด้วยซ้ำ
+    expect(parsed.items[0]).toMatchObject({ quantity: 8, unitPrice: B(100.8) });
+    expect(parsed.items[3]).toMatchObject({ quantity: 12, unitPrice: B(282.6) });
+    expect(parsed.items[4]).toMatchObject({ quantity: 2, unitPrice: B(1650) });
+  });
+
+  it('ราคาต่อหน่วยที่ OCR อ่านผิด ถอยไปนับเป็นชิ้นเดียว ไม่เดาต่อ', () => {
+    // บรรทัดนี้ 282.60 ถูกอ่านเป็น 262.60 หารไม่ลงตัวก็ไม่ใช้
+    expect(parsed.items[2]).toMatchObject({ quantity: 1, unitPrice: B(3391.2) });
+  });
+
+  it('ตัดรหัสสินค้ากับขยะหน้าบรรทัดออกจากชื่อ', () => {
+    // ข้อความดิบคือ "[gid 12584982 เพียวรีน่าวัน สูดรแมวโด ..."
+    expect(parsed.items[0].name).toMatch(/^เพียวรีน่าวัน/);
+    expect(parsed.items[0].name).not.toMatch(/12584982|gid/);
+  });
+
+  it('ต่อตัวอักษรไทยกลับเป็นคำ ไม่ใช่ "เพ ี ย ว ร ี น ่ า ว ั น"', () => {
+    // tesseract ซอยภาษาไทยเป็นตัวๆ เพราะไทยไม่มีช่องว่างระหว่างคำ
+    expect(parsed.items[0].name).toContain('เพียวรีน่าวัน');
   });
 });

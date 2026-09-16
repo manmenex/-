@@ -157,16 +157,33 @@ export async function readReceipt(image: Blob): Promise<ParsedReceipt> {
   return parseReceipt(linesOf(data));
 }
 
+/**
+ * แปลงผลจาก tesseract เป็นบรรทัดพร้อมตำแหน่งคำ
+ *
+ * ต้องเอาตำแหน่งแนวนอนของทุกคำไปด้วย ใบเสร็จเป็นตาราง ตัวแกะต้องรู้ว่า
+ * ตัวเลขไหนอยู่คอลัมน์ยอดเงิน ตัวไหนอยู่คอลัมน์ราคาต่อหน่วย
+ * และภาษาไทยที่ถูกซอยเป็นตัวๆ ต้องใช้ระยะห่างประกอบกลับเป็นคำ
+ */
 function linesOf(data: { blocks?: unknown }): ReceiptLine[] {
   const lines: ReceiptLine[] = [];
-  type Line = { text?: string; bbox?: { y0?: number } };
+  type Box = { x0?: number; x1?: number; y0?: number };
+  type Word = { text?: string; bbox?: Box };
+  type Line = { text?: string; bbox?: Box; words?: Word[] };
   type Para = { lines?: Line[] };
   type Block = { paragraphs?: Para[] };
   for (const block of (data.blocks as Block[] | null | undefined) ?? []) {
     for (const paragraph of block.paragraphs ?? []) {
       for (const line of paragraph.lines ?? []) {
         const text = String(line.text ?? '').trim();
-        if (text) lines.push({ text, y: line.bbox?.y0 ?? lines.length });
+        if (!text) continue;
+        const words = (line.words ?? [])
+          .map((word) => ({
+            text: String(word.text ?? ''),
+            x0: word.bbox?.x0 ?? 0,
+            x1: word.bbox?.x1 ?? 0,
+          }))
+          .filter((word) => word.text);
+        lines.push({ text, y: line.bbox?.y0 ?? lines.length, words });
       }
     }
   }
