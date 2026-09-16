@@ -6,7 +6,7 @@ import { FULL_CROP, isFullCrop, type CropRect } from '../lib/crop';
 import { formatMoney } from '../core/currency';
 import { newId } from '../store/ids';
 import { loadPhoto } from '../store/photos';
-import type { ParsedReceipt } from '../lib/receipt';
+import { MIN_CONFIDENCE, type ParsedReceipt } from '../lib/receipt';
 import type { Adjustment, Bill, LineItem, Member } from '../core/types';
 
 /**
@@ -74,7 +74,8 @@ export function ReceiptScanner({
        * หลักเดียวกับที่บิลบล็อกการบันทึกเมื่อยอดไม่ตรง แทนที่จะปัดเศษกลบ
        */
       const all = found?.items.map((_, index) => index) ?? [];
-      setSkipped(found?.reconciled ? new Set() : new Set(all));
+      const trusted = Boolean(found?.reconciled) && (found?.confidence ?? 0) >= MIN_CONFIDENCE;
+      setSkipped(trusted ? new Set() : new Set(all));
       if (!found || found.items.length === 0) {
         setError('แกะรายการจากรูปนี้ไม่ออก ลองถ่ายให้ตรงและสว่างขึ้น หรือพิมพ์เอง');
       }
@@ -283,7 +284,17 @@ export function ReceiptScanner({
               </p>
             )}
 
-            {parsed.items.length > 0 && (
+            {parsed.confidence < MIN_CONFIDENCE && (
+              <div className="mt-3 border-l-2 border-owed bg-accent-soft px-3 py-2 text-[13px] text-owed">
+                รูปนี้อ่านได้ไม่ชัดพอ ตัวเลขที่เห็นอาจไม่ใช่ของจริงเลย
+                <span className="mt-1 block text-2xs text-ink-soft">
+                  ถ่ายใหม่ให้ตัวใบเสร็จเต็มจอ วางแบนๆ ไม่เอียง แสงสม่ำเสมอไม่มีเงาทับ
+                  แล้วค่อยสแกนอีกที จะได้ผลต่างกันมาก
+                </span>
+              </div>
+            )}
+
+            {parsed.items.length > 0 && parsed.confidence >= MIN_CONFIDENCE && (
               <div
                 className={`mt-3 border-l-2 px-3 py-2 text-[13px] ${
                   parsed.reconciled

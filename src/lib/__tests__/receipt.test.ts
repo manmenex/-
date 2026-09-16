@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseReceipt, type ReceiptLine } from '../receipt';
+import { MIN_CONFIDENCE, parseReceipt, type ReceiptLine } from '../receipt';
 import vetReceipt from './fixtures/vet-receipt.json';
 import { B } from '../../core/__tests__/factories';
 
@@ -142,8 +142,8 @@ describe('ใบเสร็จรูปแบบอื่น', () => {
   });
 
   it('ใบเสร็จว่างเปล่าไม่ทำให้พัง', () => {
-    expect(parseReceipt([])).toEqual({ items: [], reconciled: false });
-    expect(parseReceipt(lines(['', 0], ['   ', 10]))).toEqual({ items: [], reconciled: false });
+    expect(parseReceipt([])).toMatchObject({ items: [], reconciled: false });
+    expect(parseReceipt(lines(['', 0], ['   ', 10]))).toMatchObject({ items: [], reconciled: false });
   });
 
   it('เรียงตามตำแหน่งบนรูป ไม่ใช่ลำดับที่ส่งเข้ามา', () => {
@@ -251,5 +251,45 @@ describe('รายการราคาซ้ำกันติดกัน', (
 
     expect(parsed.items).toHaveLength(1);
     expect(parsed.total).toBe(B(806.4));
+  });
+});
+
+describe('ความมั่นใจของ OCR', () => {
+  const row = (name: string, amount: string, y: number, confidence: number): ReceiptLine => ({
+    text: `${name} ${amount}`,
+    y,
+    confidence,
+    words: [
+      { text: name, x0: 60, x1: 300 },
+      { text: amount, x0: 850, x1: 940 },
+    ],
+  });
+
+  it('อ่านชัด = ความมั่นใจสูง', () => {
+    const parsed = parseReceipt([
+      row('ข้าวผัด', '120.00', 100, 90),
+      row('ต้มยำ', '180.00', 150, 88),
+      row('รวม', '300.00', 200, 92),
+    ]);
+    expect(parsed.confidence).toBeGreaterThanOrEqual(MIN_CONFIDENCE);
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  it('อ่านไม่ชัด = ความมั่นใจต่ำ แม้ตัวเลขจะบังเอิญบวกกันลงตัว', () => {
+    // เคสจริงที่เจอ: ขยะจากรูปมืดๆ บวกกันลงตัวพอดี แล้วขึ้นว่ายอดตรงกัน
+    // ตัวเลขบวกได้จริงก็จริง แต่ไม่ได้แปลว่าอ่านถูก หน้าจอต้องแยกสองเรื่องนี้ออกจากกัน
+    // ค่าความมั่นใจ 52-60 คือช่วงที่วัดได้จริงจากรูปที่อ่านออกมาเป็นขยะ
+    const parsed = parseReceipt([
+      row('ข้าวผัด', '2.00', 100, 56),
+      row('ต้มยำ', '6.00', 150, 52),
+      row('รวม', '8.00', 200, 60),
+    ]);
+    expect(parsed.reconciled).toBe(true);
+    expect(parsed.confidence).toBeLessThan(MIN_CONFIDENCE);
+  });
+
+  it('ไม่มีค่าความมั่นใจส่งมา (ไม่ได้มาจาก OCR) ถือว่าเชื่อได้', () => {
+    const parsed = parseReceipt(lines(['ร้านทดสอบ', 10], ['ข้าว 50.00', 60], ['รวม 50.00', 100]));
+    expect(parsed.confidence).toBe(100);
   });
 });

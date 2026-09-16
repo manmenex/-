@@ -30,6 +30,8 @@ export interface ReceiptLine {
   y: number;
   /** คำพร้อมตำแหน่งแนวนอน ไม่มีก็ได้ จะถอยไปอ่านแบบข้อความเรียงแทน */
   words?: ReceiptWord[];
+  /** ความมั่นใจของ OCR บรรทัดนี้ 0-100 ไม่ใส่มา = ไม่ประเมิน */
+  confidence?: number;
 }
 
 export interface ReceiptItem {
@@ -56,7 +58,18 @@ export interface ParsedReceipt {
    * เป็นหลักเดียวกับที่บิลบล็อกการบันทึกเมื่อยอดไม่ตรง ไม่ปัดเศษกลบ
    */
   reconciled: boolean;
+  /**
+   * ความมั่นใจของ OCR (มัธยฐานรายบรรทัด 0-100)
+   *
+   * วัดจากของจริง: ใบที่อ่านได้ดีอยู่ที่ 73-94 ส่วนใบที่อ่านออกมาเป็นขยะอยู่ที่ 56-60
+   * จำเป็นต้องมี เพราะเลขขยะบังเอิญบวกกันลงตัวได้ แล้วขึ้นว่า "ยอดตรงกัน"
+   * ทั้งที่ยอดรวมเป็น 8,286,000 บาท — เจอมาแล้วตอนทดสอบ
+   */
+  confidence: number;
 }
+
+/** ต่ำกว่านี้ถือว่าอ่านไม่ชัดพอจะเชื่อ */
+export const MIN_CONFIDENCE = 65;
 
 /** ตัวเลขที่หน้าตาเป็นจำนวนเงิน */
 const AMOUNT_WORD = /^-?\d[\d,]*(?:\.\d{1,2})?$/;
@@ -94,6 +107,7 @@ export function parseReceipt(lines: ReceiptLine[]): ParsedReceipt {
   const columns = detectColumns(ordered);
   const parsed = columns ? parseByColumn(ordered, columns) : parseByText(ordered);
   parsed.shopName ??= findShopName(ordered);
+  parsed.confidence = medianConfidence(ordered);
   return parsed;
 }
 
@@ -181,7 +195,7 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
     });
   }
 
-  const result: ParsedReceipt = { items: [], reconciled: false };
+  const result: ParsedReceipt = { items: [], reconciled: false, confidence: 0 };
   if (rows.length === 0) return result;
 
   const split = findSubtotalSplit(rows, (row) => nameFrom(row.line, columns));
@@ -321,7 +335,7 @@ export function cleanName(text: string): string {
 // ── อ่านแบบข้อความเรียง (ทางสำรองตอนไม่มีตำแหน่งคำ) ──────────────────────
 
 function parseByText(lines: ReceiptLine[]): ParsedReceipt {
-  const result: ParsedReceipt = { items: [], reconciled: false };
+  const result: ParsedReceipt = { items: [], reconciled: false, confidence: 0 };
   let netTotal: Money | undefined;
   let subTotal: Money | undefined;
   let sawSummary = false;
@@ -420,6 +434,16 @@ function findShopName(lines: ReceiptLine[]): string | undefined {
     if (text.replace(/[^\p{L}]/gu, '').length >= 3) return text;
   }
   return undefined;
+}
+
+/** ไม่มีค่าความมั่นใจส่งมา = ไม่ได้มาจาก OCR (เช่นในเทส) ให้ถือว่าเชื่อได้ */
+function medianConfidence(lines: ReceiptLine[]): number {
+  const scores = lines
+    .map((line) => line.confidence)
+    .filter((score): score is number => typeof score === 'number');
+  if (scores.length === 0) return 100;
+  const sorted = [...scores].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
 }
 
 function sum(values: Money[]): Money {

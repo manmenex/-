@@ -187,7 +187,7 @@ function linesOf(data: { blocks?: unknown }): ReceiptLine[] {
   const lines: ReceiptLine[] = [];
   type Box = { x0?: number; x1?: number; y0?: number };
   type Word = { text?: string; bbox?: Box };
-  type Line = { text?: string; bbox?: Box; words?: Word[] };
+  type Line = { text?: string; bbox?: Box; words?: Word[]; confidence?: number };
   type Para = { lines?: Line[] };
   type Block = { paragraphs?: Para[] };
   for (const block of (data.blocks as Block[] | null | undefined) ?? []) {
@@ -202,7 +202,7 @@ function linesOf(data: { blocks?: unknown }): ReceiptLine[] {
             x1: word.bbox?.x1 ?? 0,
           }))
           .filter((word) => word.text);
-        lines.push({ text, y: line.bbox?.y0 ?? lines.length, words });
+        lines.push({ text, y: line.bbox?.y0 ?? lines.length, words, confidence: line.confidence });
       }
     }
   }
