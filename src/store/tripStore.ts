@@ -13,7 +13,7 @@ import type {
 } from '../core/types';
 import { computeOutstanding, type Outstanding } from '../core/settle';
 import { type AppData, type PhotoBundle, mergeData, parse, photoIdsOf, serialize } from './export';
-import { clearPhotos, pruneOrphanPhotos, savePhoto } from './photos';
+import { clearPhotos, loadPhoto, pruneOrphanPhotos, savePhoto } from './photos';
 import { blobToDataUrl, dataUrlToBlob } from '../lib/image';
 import { newId, todayISO } from './ids';
 
@@ -471,9 +471,9 @@ async function collectPhotos(ids: Set<string>): Promise<PhotoBundle> {
   return bundle;
 }
 
+/** รูปใบเดียวอ่านไม่ได้ ไม่ควรทำให้ export ทั้งไฟล์ล้ม ข้อมูลเงินสำคัญกว่ารูป */
 async function loadPhotoSafely(id: string) {
   try {
-    const { loadPhoto } = await import('./photos');
     return await loadPhoto(id);
   } catch {
     return undefined;
