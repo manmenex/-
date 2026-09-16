@@ -84,6 +84,7 @@ export function compactIds(data: AppData): AppData {
       })),
       payers: entry.payers.map((payer) => ({ ...payer, memberId: member(payer.memberId) })),
       roundingTargetId: entry.roundingTargetId ? member(entry.roundingTargetId) : undefined,
+      treatedBy: entry.treatedBy ? member(entry.treatedBy) : undefined,
     })),
     settlements: data.settlements.map((entry, index) => ({
       ...entry,

@@ -22,14 +22,15 @@ export interface BillIssue {
     | 'unknownMember'
     | 'negativeShare'
     | 'missingRate'
-    | 'noParticipants';
+    | 'noParticipants'
+    | 'unknownTreater';
   message: string;
   itemId?: string;
   detail?: Record<string, number>;
 }
 
 export interface AuditStep {
-  key: 'items' | 'discount' | 'serviceCharge' | 'vat' | 'rounding';
+  key: 'items' | 'discount' | 'serviceCharge' | 'vat' | 'rounding' | 'treat';
   label: string;
   /** ยอดที่ step นี้เพิ่ม/ลดทั้งบิล */
   amount: Money;
@@ -53,6 +54,8 @@ export interface BillAudit {
   /** statedTotal - computedTotal (ก่อนปรับ) */
   difference: Money;
   roundingAppliedTo?: string;
+  /** คนที่เลี้ยงบิลนี้ ถ้ามี */
+  treatedBy?: string;
 }
 
 export interface BillComputation {
@@ -294,6 +297,14 @@ export function computeBillShares(
     }
   }
 
+  // ── Step 6: คนเลี้ยง ──────────────────────────────────────────────────
+  // ทำหลังปัดเศษ เพื่อให้ audit ยังเห็นว่าเดิมแต่ละคนต้องจ่ายเท่าไหร่
+  // ก่อนจะถูกโยนไปรวมที่คนเลี้ยงทั้งก้อน
+  if (bill.treatedBy) {
+    running = applyTreat(bill.treatedBy, running, steps, issues, members);
+    audit.treatedBy = bill.treatedBy;
+  }
+
   const converted = convertShares(bill, running, issues);
   return {
     status,
@@ -332,6 +343,50 @@ function convertShares(
   }
   const homeTotal = toHome(bill.statedTotal, bill.exchangeRate);
   return { shares: allocateTo(homeTotal, localShares), homeTotal };
+}
+
+/**
+ * โยนยอดของทุกคนไปรวมที่คนเลี้ยงคนเดียว
+ *
+ * คนอื่นเหลือ 0 แต่ยัง "คงคีย์ไว้" ไม่ลบทิ้ง เพราะหน้าบิลยังต้องบอกได้ว่า
+ * ใครร่วมโต๊ะบ้างและปกติจะตกคนละเท่าไหร่ และผลรวมยังเท่ากับยอดบิลเป๊ะ
+ * (ย้ายเฉยๆ ไม่ได้สร้างหรือทำเงินหาย)
+ *
+ * คนเลี้ยงไม่จำเป็นต้องกินด้วย — เดินเข้ามาจ่ายให้เฉยๆ ก็ได้ กรณีนั้นจะเพิ่มคีย์ใหม่
+ */
+function applyTreat(
+  treaterId: string,
+  running: Record<string, Money>,
+  steps: AuditStep[],
+  issues: BillIssue[],
+  members: Member[],
+): Record<string, Money> {
+  if (members.length > 0 && !members.some((member) => member.id === treaterId)) {
+    issues.push({
+      code: 'unknownTreater',
+      message: 'คนที่เลี้ยงบิลนี้ไม่ได้อยู่ในทริปแล้ว',
+    });
+  }
+
+  const delta: Record<string, Money> = {};
+  let moved = 0;
+  for (const [memberId, amount] of Object.entries(running)) {
+    if (memberId === treaterId || amount === 0) continue;
+    delta[memberId] = -amount;
+    moved += amount;
+  }
+  delta[treaterId] = (delta[treaterId] ?? 0) + moved;
+
+  const next = applyDelta({ [treaterId]: 0, ...running }, delta);
+  steps.push({
+    key: 'treat',
+    label: 'เลี้ยง — ยกยอดทั้งบิลไปที่คนเลี้ยง',
+    amount: moved,
+    deltaByMember: delta,
+    runningByMember: { ...next },
+    note: `คนอื่นไม่ต้องจ่าย ยอดทั้งหมด ${formatBaht(next[treaterId])} ตกที่คนเลี้ยง`,
+  });
+  return next;
 }
 
 function applyDelta(
