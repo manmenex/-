@@ -184,7 +184,7 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
   const result: ParsedReceipt = { items: [], reconciled: false };
   if (rows.length === 0) return result;
 
-  const split = findSubtotalSplit(rows.map((row) => row.amount));
+  const split = findSubtotalSplit(rows, (row) => nameFrom(row.line, columns));
   const itemRows = split === null ? rows.filter(isItemRow) : rows.slice(0, split);
   const restRows = split === null ? [] : rows.slice(split);
 
@@ -241,14 +241,29 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
  * ไม่ต้องพึ่งว่า OCR จะอ่านคำว่า "รวมเงิน" ออกหรือเปล่า
  * เอาจุดตัดที่อยู่ท้ายสุด เผื่อรายการสองตัวแรกบังเอิญราคาเท่ากัน
  */
-function findSubtotalSplit(amounts: Money[]): number | null {
+function findSubtotalSplit(rows: Row[], nameOf: (row: Row) => string): number | null {
   let running = 0;
   let found: number | null = null;
-  for (const [index, amount] of amounts.entries()) {
-    if (index >= 1 && running > 0 && running === amount) found = index;
-    running += amount;
+  for (const [index, row] of rows.entries()) {
+    if (index >= 1 && running > 0 && running === row.amount && looksLikeSummary(nameOf(row))) {
+      found = index;
+    }
+    running += row.amount;
   }
   return found;
+}
+
+/** จำนวนตัวอักษรที่มากพอจะบอกว่านี่คือชื่อสินค้า ไม่ใช่คำว่า "รวม" */
+const NAME_IS_PRODUCT = 15;
+
+/**
+ * บรรทัดที่ยอดบังเอิญเท่ากับผลรวมข้างบน อาจเป็นแค่สินค้าราคาซ้ำกันสองชิ้นติดกัน
+ * (เจอมาแล้ว: เพียวรีน่าวันสองสูตร ราคา 806.40 เท่ากันเป๊ะ เรียงติดกัน)
+ * บรรทัดยอดรวมจะไม่มีชื่อสินค้ายาวๆ อยู่ในคอลัมน์รายการ ใช้ข้อนี้กันไว้
+ */
+function looksLikeSummary(name: string): boolean {
+  if (classify(name)) return true;
+  return name.replace(/[^\p{L}]/gu, '').length < NAME_IS_PRODUCT;
 }
 
 /** ไม่มีจุดตัดให้เห็น ใช้คำขึ้นต้นตัดสินแทน */

@@ -1,5 +1,6 @@
 import { parseBaht } from '../core/money';
 import { parseReceipt, type ParsedReceipt, type ReceiptLine } from './receipt';
+import { isFullCrop, toPixels, type CropRect } from './crop';
 import type { Money } from '../core/types';
 
 /**
@@ -139,10 +140,27 @@ async function getWorker(mode: OcrMode) {
 }
 
 /** อ่านตัวเลขจากรูป คืนตัวเลือกให้ผู้ใช้แตะเลือกเอง */
-export async function readAmounts(image: Blob): Promise<AmountCandidate[]> {
+export async function readAmounts(image: Blob, crop?: CropRect): Promise<AmountCandidate[]> {
   const worker = await getWorker('amount');
-  const { data } = await worker.recognize(image);
+  const { data } = await worker.recognize(image, await rectangleFor(image, crop));
   return extractAmounts(data.text);
+}
+
+/**
+ * แปลงกรอบครอบตัดเป็นพิกัดพิกเซลให้ tesseract
+ *
+ * ครอบตัดช่วยให้แม่นขึ้นจริง เพราะ tesseract วิเคราะห์เค้าโครงหน้าก่อนอ่าน
+ * โลโก้ ตราประทับ และลายน้ำบนหัวใบเสร็จทำให้มันแบ่งคอลัมน์ผิดได้
+ * เลือกทั้งรูปก็ไม่ต้องสั่งอะไร จะได้ไม่ต้องถอดรหัสรูปซ้ำโดยเปล่าประโยชน์
+ */
+async function rectangleFor(image: Blob, crop?: CropRect) {
+  if (isFullCrop(crop) || !crop) return {};
+  const bitmap = await createImageBitmap(image);
+  try {
+    return { rectangle: toPixels(crop, bitmap.width, bitmap.height) };
+  } finally {
+    bitmap.close();
+  }
 }
 
 /**
@@ -151,9 +169,10 @@ export async function readAmounts(image: Blob): Promise<AmountCandidate[]> {
  * ขอผลแบบมีตำแหน่งบรรทัด (blocks) ไม่ใช่ข้อความล้วน เพราะต้องรู้ว่า
  * ชื่อรายการกับราคาอยู่บรรทัดเดียวกัน ข้อความล้วนจะปนกันจนแยกไม่ออก
  */
-export async function readReceipt(image: Blob): Promise<ParsedReceipt> {
+export async function readReceipt(image: Blob, crop?: CropRect): Promise<ParsedReceipt> {
   const worker = await getWorker('receipt');
-  const { data } = await worker.recognize(image, {}, { text: true, blocks: true });
+  const options = await rectangleFor(image, crop);
+  const { data } = await worker.recognize(image, options, { text: true, blocks: true });
   return parseReceipt(linesOf(data));
 }
 

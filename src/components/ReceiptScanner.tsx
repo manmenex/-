@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Sheet } from './Sheet';
 import { PhotoPicker } from './PhotoAttach';
+import { CropBox } from './CropBox';
+import { FULL_CROP, isFullCrop, type CropRect } from '../lib/crop';
 import { formatMoney } from '../core/currency';
 import { newId } from '../store/ids';
 import { loadPhoto } from '../store/photos';
@@ -34,6 +36,8 @@ export function ReceiptScanner({
   const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const [useName, setUseName] = useState(true);
   const [useFees, setUseFees] = useState(true);
+  const [crop, setCrop] = useState<CropRect>(FULL_CROP);
+  const [cropping, setCropping] = useState(false);
 
   useEffect(() => {
     if (photoIds.length > 0 && !photoIds.includes(picked)) setPicked(photoIds[0]);
@@ -48,6 +52,11 @@ export function ReceiptScanner({
     setSkipped(new Set());
   };
 
+  const resetForPhoto = () => {
+    reset();
+    setCrop(FULL_CROP);
+  };
+
   const scan = async () => {
     setState('working');
     setError(null);
@@ -55,7 +64,7 @@ export function ReceiptScanner({
     try {
       const { readReceipt, releaseOcr } = await import('../lib/ocr');
       const blob = await loadPhoto(picked);
-      const found = blob ? await readReceipt(blob) : null;
+      const found = blob ? await readReceipt(blob, crop) : null;
       await releaseOcr();
       setParsed(found);
       setState('done');
@@ -129,7 +138,8 @@ export function ReceiptScanner({
         className="tap text-[13px] text-accent"
         onClick={() => {
           setOpen(true);
-          reset();
+          resetForPhoto();
+          setCropping(false);
         }}
       >
         สแกนรายการจากรูปบิล
@@ -141,9 +151,36 @@ export function ReceiptScanner({
           selected={picked}
           onSelect={(id) => {
             setPicked(id);
-            reset();
+            resetForPhoto();
           }}
         />
+
+        <div className="mt-2 flex items-baseline justify-between">
+          <button
+            type="button"
+            className="tap text-[13px] text-accent"
+            onClick={() => setCropping((current) => !current)}
+          >
+            {cropping ? 'ซ่อนกรอบ' : 'เลือกเฉพาะบางส่วนของรูป'}
+          </button>
+          {!isFullCrop(crop) && <span className="text-2xs text-ink-soft">เลือกไว้บางส่วน</span>}
+        </div>
+
+        {cropping && (
+          <>
+            <CropBox
+              photoId={picked}
+              rect={crop}
+              onChange={(next) => {
+                setCrop(next);
+                reset();
+              }}
+            />
+            <p className="mt-1 text-2xs text-ink-faint">
+              ครอบเอาเฉพาะตารางรายการ ตัดหัวบิลกับตราประทับออก จะอ่านแม่นขึ้น
+            </p>
+          </>
+        )}
 
         <button
           type="button"

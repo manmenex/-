@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { formatMoney } from '../core/currency';
 import type { Money } from '../core/types';
 import { PhotoPicker } from './PhotoAttach';
+import { CropBox } from './CropBox';
+import { FULL_CROP, isFullCrop, type CropRect } from '../lib/crop';
 import { loadPhoto } from '../store/photos';
 import type { AmountCandidate } from '../lib/ocr';
 
@@ -29,6 +31,8 @@ export function ScanAmount({
   const [candidates, setCandidates] = useState<AmountCandidate[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState(photoIds[0]);
+  const [crop, setCrop] = useState<CropRect>(FULL_CROP);
+  const [cropping, setCropping] = useState(false);
 
   // ลบรูปที่เลือกไว้ทิ้ง ให้ตกไปที่รูปแรกที่ยังเหลือ ไม่งั้นกดอ่านแล้วไม่มีอะไรเกิดขึ้น
   useEffect(() => {
@@ -44,7 +48,7 @@ export function ScanAmount({
     try {
       const { readAmounts, releaseOcr } = await import('../lib/ocr');
       const blob = await loadPhoto(picked);
-      const ranked = blob ? await readAmounts(blob) : [];
+      const ranked = blob ? await readAmounts(blob, crop) : [];
       // ปล่อย worker ทันที กิน RAM หลายสิบเมกะไบต์ มือถือเครื่องเล็กจะสะดุด
       await releaseOcr();
 
@@ -80,6 +84,7 @@ export function ScanAmount({
           setCandidates([]);
           setState('idle');
           setError(null);
+          setCrop(FULL_CROP);
         }}
       />
 
@@ -87,6 +92,29 @@ export function ScanAmount({
         <p className="mt-1 text-2xs text-ink-faint">
           ครั้งแรกต้องโหลดตัวอ่านก่อน อาจนานสักหน่อย ครั้งต่อไปจะเร็วขึ้น
         </p>
+      )}
+
+      <div className="mt-1 flex items-baseline gap-3">
+        <button
+          type="button"
+          className="tap text-[13px] text-accent"
+          onClick={() => setCropping((current) => !current)}
+        >
+          {cropping ? 'ซ่อนกรอบ' : 'ครอบเฉพาะช่องยอดเงิน'}
+        </button>
+        {!isFullCrop(crop) && <span className="text-2xs text-ink-soft">เลือกไว้บางส่วน</span>}
+      </div>
+
+      {cropping && (
+        <CropBox
+          photoId={picked}
+          rect={crop}
+          onChange={(next) => {
+            setCrop(next);
+            setCandidates([]);
+            setState('idle');
+          }}
+        />
       )}
 
       {candidates.length > 0 && (
