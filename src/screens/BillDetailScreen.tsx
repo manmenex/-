@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
+import { PhotoLightbox } from '../components/PhotoAttach';
 import { Sheet } from '../components/Sheet';
 import { computeBillDebtsDetailed } from '../core/computeDebts';
 import { computeBillShares } from '../core/computeBill';
@@ -99,6 +100,19 @@ export function BillDetailScreen() {
           </li>
         </ul>
       </section>
+
+      {(bill.photoIds?.length ?? 0) > 0 && (
+        <section className="mt-6 px-5">
+          <p className="text-2xs uppercase tracking-wide text-ink-soft">รูปบิล</p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {bill.photoIds?.map((photoId) => (
+              <li key={photoId}>
+                <PhotoLightbox id={photoId} size={80} label="ดูรูปบิลเต็ม" />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="mt-6 px-5">
         <p className="text-2xs uppercase tracking-wide text-ink-soft">

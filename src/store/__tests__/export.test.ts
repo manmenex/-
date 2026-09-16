@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXPORT_VERSION, mergeData, parse, serialize, type AppData } from '../export';
+import { EXPORT_VERSION, mergeData, parse, photoIdsOf, serialize, type AppData } from '../export';
 import { B, MAN, MEMBERS, OAK, WOO, bill, equal, item, personal } from '../../core/__tests__/factories';
 
 const sample = (): AppData => ({
@@ -103,5 +103,68 @@ describe('mergeData', () => {
     const merged = mergeData(current, incoming);
     expect(merged.trips).toHaveLength(2);
     expect(merged.trips.find((trip) => trip.id === 't1')?.name).toBe('ชื่อใหม่');
+  });
+});
+
+/**
+ * รูปบิล/สลิปในไฟล์สำรอง
+ *
+ * ไฟล์สำรองที่กู้กลับมาแล้วรูปหายไม่ใช่ไฟล์สำรอง แต่รูปจะฝังลงลิงก์แชร์ไม่ได้
+ * (ลิงก์จะยาวจนแชตตัดทิ้ง) ความต่างตรงนี้ต้องคุมด้วยเทส
+ */
+describe('รูปในไฟล์สำรอง', () => {
+  const withPhotos = (): AppData => {
+    const data = sample();
+    data.bills[0].photoIds = ['ph-a', 'ph-b'];
+    data.settlements[0].slipPhotoId = 'ph-slip';
+    return data;
+  };
+
+  it('photoIdsOf เก็บ id จากทั้งบิลและสลิปโอน', () => {
+    expect(photoIdsOf(withPhotos())).toEqual(new Set(['ph-a', 'ph-b', 'ph-slip']));
+  });
+
+  it('ไม่มีรูปเลยก็ได้เซ็ตว่าง ไม่ใช่ undefined', () => {
+    expect(photoIdsOf(sample())).toEqual(new Set());
+  });
+
+  it('รูปรอด export -> parse กลับมาครบ', () => {
+    const photos = { 'ph-a': 'data:image/jpeg;base64,AAAA', 'ph-slip': 'data:image/jpeg;base64,BBBB' };
+    const result = parse(serialize(withPhotos(), '2025-01-01T00:00:00.000Z', photos));
+
+    expect(result.error).toBeUndefined();
+    expect(result.photos).toEqual(photos);
+    expect(result.data?.bills[0].photoIds).toEqual(['ph-a', 'ph-b']);
+    expect(result.data?.settlements[0].slipPhotoId).toBe('ph-slip');
+  });
+
+  it('ไม่มีรูปก็ไม่ต้องใส่คีย์ photos ให้ไฟล์บวม', () => {
+    expect(JSON.parse(serialize(sample())).photos).toBeUndefined();
+    expect(JSON.parse(serialize(sample(), undefined, {})).photos).toBeUndefined();
+  });
+
+  it('ไฟล์เก่าที่ยังไม่มีคีย์ photos ยังอ่านได้ตามปกติ', () => {
+    const json = JSON.stringify({
+      version: EXPORT_VERSION,
+      exportedAt: '2025-01-01T00:00:00.000Z',
+      ...sample(),
+    });
+    const result = parse(json);
+
+    expect(result.error).toBeUndefined();
+    expect(result.photos).toBeUndefined();
+  });
+
+  it('คีย์ photos ที่ไม่ใช่ object ถูกมองข้าม ไม่ทำให้ import ทั้งไฟล์ล้ม', () => {
+    const json = JSON.stringify({
+      version: EXPORT_VERSION,
+      exportedAt: '2025-01-01T00:00:00.000Z',
+      ...sample(),
+      photos: ['พัง'],
+    });
+    const result = parse(json);
+
+    expect(result.data).toBeDefined();
+    expect(result.photos).toBeUndefined();
   });
 });

@@ -12,7 +12,9 @@ import type {
   Waiver,
 } from '../core/types';
 import { computeOutstanding, type Outstanding } from '../core/settle';
-import { type AppData, mergeData, parse, serialize } from './export';
+import { type AppData, type PhotoBundle, mergeData, parse, photoIdsOf, serialize } from './export';
+import { clearPhotos, pruneOrphanPhotos, savePhoto } from './photos';
+import { blobToDataUrl, dataUrlToBlob } from '../lib/image';
 import { newId, todayISO } from './ids';
 
 /** draft ของบิลที่กำลังกรอกค้างไว้ — ปิดแอปกลางคันแล้วต้องไม่หาย */
@@ -67,8 +69,8 @@ export interface TripState {
   saveDraft: (draft: BillDraft) => void;
   clearDraft: (key: string) => void;
 
-  exportJSON: () => string;
-  importJSON: (json: string, mode: 'merge' | 'replace') => { ok: boolean; error?: string };
+  exportJSON: () => Promise<string>;
+  importJSON: (json: string, mode: 'merge' | 'replace') => Promise<{ ok: boolean; error?: string }>;
   resetAll: () => void;
 }
 
@@ -81,6 +83,7 @@ export interface NewSettlement {
   method?: SettlementMethod;
   refNumber?: string;
   note?: string;
+  slipPhotoId?: string;
 }
 
 export interface NewWaiver {
@@ -194,7 +197,7 @@ export const useTripStore = create<TripState>()(
           },
         })),
 
-      deleteTrip: (tripId) =>
+      deleteTrip: (tripId) => {
         setState((state) => {
           const keepMembers = Object.fromEntries(
             Object.entries(state.members).filter(([, member]) => member.tripId !== tripId),
@@ -209,7 +212,9 @@ export const useTripStore = create<TripState>()(
             waivers: filterByTrip(state.waivers),
             drafts: filterByTrip(state.drafts),
           };
-        }),
+        });
+        void sweepPhotos();
+      },
 
       setQuickCurrency: (code) =>
         setState((state) => ({ quickRate: { ...state.quickRate, currency: code } })),
@@ -298,7 +303,10 @@ export const useTripStore = create<TripState>()(
           bills: { ...state.bills, [bill.id]: bill },
         })),
 
-      deleteBill: (billId) => setState((state) => ({ bills: dropKey(state.bills, billId) })),
+      deleteBill: (billId) => {
+        setState((state) => ({ bills: dropKey(state.bills, billId) }));
+        void sweepPhotos();
+      },
 
       addSettlement: (input) => {
         const id = newId('set-');
@@ -315,14 +323,17 @@ export const useTripStore = create<TripState>()(
               method: input.method ?? 'promptpay',
               refNumber: input.refNumber,
               note: input.note,
+              slipPhotoId: input.slipPhotoId,
             },
           },
         }));
         return id;
       },
 
-      deleteSettlement: (settlementId) =>
-        setState((state) => ({ settlements: dropKey(state.settlements, settlementId) })),
+      deleteSettlement: (settlementId) => {
+        setState((state) => ({ settlements: dropKey(state.settlements, settlementId) }));
+        void sweepPhotos();
+      },
 
       addWaiver: (input) => {
         const id = newId('wai-');
@@ -352,14 +363,21 @@ export const useTripStore = create<TripState>()(
 
       clearDraft: (key) => setState((state) => ({ drafts: dropKey(state.drafts, key) })),
 
-      exportJSON: () => serialize(toAppData(getState())),
+      // ไฟล์สำรองพารูปไปด้วย ไม่งั้นกู้กลับมาแล้วรูปบิลหายหมด
+      exportJSON: async () => {
+        const data = toAppData(getState());
+        return serialize(data, undefined, await collectPhotos(photoIdsOf(data)));
+      },
 
-      importJSON: (json, mode) => {
+      importJSON: async (json, mode) => {
         const result = parse(json);
         if (!result.data) return { ok: false, error: result.error };
         const incoming = result.data;
         const merged =
           mode === 'replace' ? incoming : mergeData(toAppData(getState()), incoming);
+
+        // เขียนรูปกลับก่อนค่อยเปลี่ยน state ไม่งั้นจอจะ render บิลที่ชี้ไปหารูปที่ยังไม่มี
+        await restorePhotos(result.photos);
         setState({
           trips: byId(merged.trips),
           members: byId(merged.members),
@@ -367,10 +385,14 @@ export const useTripStore = create<TripState>()(
           settlements: byId(merged.settlements),
           waivers: byId(merged.waivers),
         });
+        if (mode === 'replace') void sweepPhotos();
         return { ok: true };
       },
 
-      resetAll: () => setState({ ...empty() }),
+      resetAll: () => {
+        setState({ ...empty() });
+        void clearPhotos();
+      },
     }),
     {
       name: 'trip-splitter-v1',
@@ -417,6 +439,57 @@ export function toAppData(state: TripState): AppData {
     settlements: Object.values(state.settlements),
     waivers: Object.values(state.waivers),
   };
+}
+
+// ── รูปบิล / สลิป ─────────────────────────────────────────────────────────
+
+/**
+ * id ของรูปทุกใบที่ยังมีคนอ้างถึง
+ *
+ * ต้องรวมรูปใน draft ที่กรอกค้างไว้ด้วย บิลนั้นยังไม่ถูกบันทึกลง bills
+ * ถ้าไม่นับ การกวาดรูปกำพร้าจะลบรูปที่เพิ่งถ่ายแนบไปเมื่อกี้ทิ้ง
+ */
+export function photosInUse(state: TripState): Set<string> {
+  const ids = photoIdsOf(toAppData(state));
+  for (const draft of Object.values(state.drafts)) {
+    for (const id of draft.bill.photoIds ?? []) ids.add(id);
+  }
+  return ids;
+}
+
+/** ลบรูปที่ไม่มีบิลหรือการโอนใบไหนอ้างถึงแล้ว เรียกหลังลบของและตอนเปิดแอป */
+export async function sweepPhotos(): Promise<number> {
+  return pruneOrphanPhotos(photosInUse(useTripStore.getState()));
+}
+
+async function collectPhotos(ids: Set<string>): Promise<PhotoBundle> {
+  const bundle: PhotoBundle = {};
+  for (const id of ids) {
+    const blob = await loadPhotoSafely(id);
+    if (blob) bundle[id] = await blobToDataUrl(blob);
+  }
+  return bundle;
+}
+
+async function loadPhotoSafely(id: string) {
+  try {
+    const { loadPhoto } = await import('./photos');
+    return await loadPhoto(id);
+  } catch {
+    return undefined;
+  }
+}
+
+async function restorePhotos(photos: PhotoBundle | undefined): Promise<void> {
+  if (!photos) return;
+  for (const [id, dataUrl] of Object.entries(photos)) {
+    try {
+      await savePhoto(dataUrlToBlob(dataUrl), id);
+    } catch (error) {
+      // รูปเสียใบเดียวไม่ควรทำให้ import ทั้งไฟล์ล้ม ข้อมูลเงินสำคัญกว่า
+      console.error(`กู้รูป ${id} จากไฟล์สำรองไม่ได้`, error);
+    }
+  }
 }
 
 // ── selectors ────────────────────────────────────────────────────────────

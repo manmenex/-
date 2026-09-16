@@ -5,6 +5,7 @@ import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { SettleSheet, type SettlePrefill } from '../components/SettleSheet';
 import { formatBaht } from '../core/money';
+import { PhotoLightbox } from '../components/PhotoAttach';
 import { METHOD_LABEL, formatDate } from '../lib/format';
 import {
   selectOutstanding,
@@ -166,6 +167,9 @@ export function MemberDetailScreen() {
           <ul className="mt-1">
             {history.map(({ kind, entry }) => (
               <li key={entry.id} className="flex items-baseline gap-3 border-b border-rule py-2.5">
+                {kind === 'settlement' && entry.slipPhotoId && (
+                  <PhotoLightbox id={entry.slipPhotoId} label="ดูสลิป" />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[15px]">
                     {nameOf(entry.fromMemberId)} → {nameOf(entry.toMemberId)}

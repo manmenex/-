@@ -15,12 +15,25 @@ export interface AppData {
   waivers: Waiver[];
 }
 
+/**
+ * รูปบิล/สลิป ในรูป data URL คีย์เป็น photo id เดียวกับที่บิลอ้างถึง
+ *
+ * ยัดมาในไฟล์สำรองด้วย เพราะ "ไฟล์สำรอง" ที่กู้ข้อมูลกลับมาได้ไม่ครบไม่ใช่ไฟล์สำรอง
+ * ฟิลด์นี้ไม่บังคับ ไฟล์เก่าที่ยังไม่มีรูปจึงอ่านได้ตามปกติ
+ */
+export type PhotoBundle = Record<string, string>;
+
 export interface ExportFile extends AppData {
   version: number;
   exportedAt: string;
+  photos?: PhotoBundle;
 }
 
-export function serialize(data: AppData, exportedAt = new Date().toISOString()): string {
+export function serialize(
+  data: AppData,
+  exportedAt = new Date().toISOString(),
+  photos?: PhotoBundle,
+): string {
   const payload: ExportFile = {
     version: EXPORT_VERSION,
     exportedAt,
@@ -29,12 +42,26 @@ export function serialize(data: AppData, exportedAt = new Date().toISOString()):
     bills: data.bills,
     settlements: data.settlements,
     waivers: data.waivers,
+    ...(photos && Object.keys(photos).length > 0 ? { photos } : {}),
   };
   return JSON.stringify(payload, null, 2);
 }
 
+/** id ของรูปทุกใบที่ข้อมูลชุดนี้อ้างถึง */
+export function photoIdsOf(data: AppData): Set<string> {
+  const ids = new Set<string>();
+  for (const bill of data.bills) {
+    for (const id of bill.photoIds ?? []) ids.add(id);
+  }
+  for (const settlement of data.settlements) {
+    if (settlement.slipPhotoId) ids.add(settlement.slipPhotoId);
+  }
+  return ids;
+}
+
 export interface ParseResult {
   data?: AppData;
+  photos?: PhotoBundle;
   error?: string;
 }
 
@@ -80,6 +107,11 @@ export function parse(json: string): ParseResult {
     }
   }
 
+  const photos =
+    file.photos && typeof file.photos === 'object' && !isArray(file.photos)
+      ? (file.photos as PhotoBundle)
+      : undefined;
+
   return {
     data: {
       trips: file.trips as Trip[],
@@ -88,6 +120,7 @@ export function parse(json: string): ParseResult {
       settlements: file.settlements as Settlement[],
       waivers: file.waivers as Waiver[],
     },
+    photos,
   };
 }
 

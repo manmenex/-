@@ -159,3 +159,29 @@ describe('shareUrl', () => {
     );
   });
 });
+
+describe('ลิงก์แชร์ไม่พารูปไปด้วย', () => {
+  /**
+   * รูปอยู่ใน IndexedDB ของเครื่องต้นทาง ฝังลงลิงก์ไม่ได้ (ลิงก์จะยาวจนแชตตัดทิ้ง)
+   * ถ้าปล่อย id ติดไปด้วย ปลายทางจะเห็นกรอบรูปว่างๆ ที่กดแล้วไม่มีอะไรขึ้น
+   * ตัดทิ้งตั้งแต่ต้นทางชัดเจนกว่า
+   */
+  it('ตัด photoIds และ slipPhotoId ออกตอนย่อ id', () => {
+    const data = sample();
+    data.bills[0].photoIds = ['ph-1', 'ph-2'];
+    data.settlements[0].slipPhotoId = 'ph-slip';
+
+    const compact = compactIds(data);
+
+    expect(compact.bills[0].photoIds).toBeUndefined();
+    expect(compact.settlements[0].slipPhotoId).toBeUndefined();
+  });
+
+  it('รูปไม่ได้ทำให้ลิงก์ยาวขึ้น', async () => {
+    const plain = sample();
+    const withPhotos = sample();
+    withPhotos.bills[0].photoIds = ['ph-1', 'ph-2', 'ph-3'];
+
+    expect((await encodeShare(withPhotos)).length).toBe((await encodeShare(plain)).length);
+  });
+});

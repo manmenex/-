@@ -174,9 +174,9 @@ export function SharedTripScreen() {
           type="button"
           className="btn-primary w-full"
           disabled={imported}
-          onClick={() => {
+          onClick={async () => {
             const json = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...data });
-            const result = useTripStore.getState().importJSON(json, 'merge');
+            const result = await useTripStore.getState().importJSON(json, 'merge');
             setImported(result.ok);
           }}
         >

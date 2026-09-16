@@ -148,15 +148,15 @@ describe('tripStore', () => {
     expect(useTripStore.getState().trips[tripId].rates?.JPY).toEqual({ from: 1000, to: 21474 });
   });
 
-  it('สกุลเงินและอัตรารอด export/import', () => {
+  it('สกุลเงินและอัตรารอด export/import', async () => {
     const store = useTripStore.getState();
     const tripId = store.createTrip('ญี่ปุ่น', ['ก', 'ข']);
     store.setTripCurrency(tripId, 'JPY');
     useTripStore.getState().setTripRate(tripId, 'JPY', { from: 1000, to: 21474 });
 
-    const json = useTripStore.getState().exportJSON();
+    const json = await useTripStore.getState().exportJSON();
     useTripStore.getState().resetAll();
-    expect(useTripStore.getState().importJSON(json, 'replace').ok).toBe(true);
+    expect((await useTripStore.getState().importJSON(json, 'replace')).ok).toBe(true);
 
     const trip = useTripStore.getState().trips[tripId];
     expect(trip.defaultCurrency).toBe('JPY');
@@ -175,27 +175,27 @@ describe('tripStore', () => {
     expect(useTripStore.getState().drafts[`${tripId}:new`]).toBeUndefined();
   });
 
-  it('export แล้ว import กลับเข้ามาได้ข้อมูลเดิม', () => {
+  it('export แล้ว import กลับเข้ามาได้ข้อมูลเดิม', async () => {
     const store = useTripStore.getState();
     const tripId = store.createTrip('ทริป', ['โอ๊ค', 'แมน', 'อู๋']);
     const memberIds = selectTripMembers(useTripStore.getState(), tripId).map((m) => m.id);
     store.saveBill(makeBill(tripId, memberIds));
 
-    const json = useTripStore.getState().exportJSON();
+    const json = await useTripStore.getState().exportJSON();
     const snapshot = toAppData(useTripStore.getState());
 
     useTripStore.getState().resetAll();
     expect(Object.keys(useTripStore.getState().trips)).toHaveLength(0);
 
-    const result = useTripStore.getState().importJSON(json, 'replace');
+    const result = await useTripStore.getState().importJSON(json, 'replace');
     expect(result.ok).toBe(true);
     expect(toAppData(useTripStore.getState())).toEqual(snapshot);
   });
 
-  it('import ไฟล์เสียต้องไม่ทำข้อมูลเดิมหาย', () => {
+  it('import ไฟล์เสียต้องไม่ทำข้อมูลเดิมหาย', async () => {
     const store = useTripStore.getState();
     store.createTrip('ทริป', ['โอ๊ค']);
-    const result = useTripStore.getState().importJSON('พัง', 'replace');
+    const result = await useTripStore.getState().importJSON('พัง', 'replace');
     expect(result.ok).toBe(false);
     expect(Object.keys(useTripStore.getState().trips)).toHaveLength(1);
   });

@@ -4,6 +4,7 @@ import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { MoneyInput, QuantityInput, Stepper, TextField, noAutofill } from '../components/Inputs';
+import { PhotoAttach } from '../components/PhotoAttach';
 import { Sheet } from '../components/Sheet';
 import { WheelOfFate } from '../components/WheelOfFate';
 import { sumMoney, sumShares } from '../core/money';
@@ -347,6 +348,17 @@ function StepHeader({
           onChange={(note) => patch({ note })}
           placeholder="ไม่ใส่ก็ได้"
         />
+      </div>
+
+      <div className="mt-6">
+        <PhotoAttach
+          label="รูปบิล"
+          ids={bill.photoIds ?? []}
+          onChange={(photoIds) => patch({ photoIds: photoIds.length > 0 ? photoIds : undefined })}
+        />
+        <p className="mt-1 text-2xs text-ink-faint">
+          เก็บไว้เทียบตอนมีคนสงสัยยอด รูปอยู่ในเครื่องนี้เท่านั้น ไม่ได้ส่งไปไหน
+        </p>
       </div>
     </div>
   );
