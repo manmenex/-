@@ -1117,8 +1117,7 @@ function StepPayers({
 
       {treater && payerNames.length > 0 && (
         <p className="mb-4 border-l-2 border-rule px-3 py-2 text-[13px] text-ink-soft">
-          {payerNames.join(' และ ')}สำรองจ่ายให้ก่อน {treater.name} จะติดเงินคนที่สำรองจ่าย
-          ตามที่แต่ละคนออกไป
+          {`${payerNames.join(' และ ')}สำรองจ่ายให้ก่อน ${treater.name}จะติดเงินคนที่สำรองจ่ายตามที่แต่ละคนออกไป`}
         </p>
       )}
 
