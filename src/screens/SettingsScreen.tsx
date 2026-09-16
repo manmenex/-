@@ -5,7 +5,7 @@ import { Avatar } from '../components/Avatar';
 import { Sheet } from '../components/Sheet';
 import { noAutofill } from '../components/Inputs';
 import { currencyOf } from '../core/currency';
-import { selectTripMembers, useTripStore } from '../store/tripStore';
+import { photosInUse, selectTripMembers, useTripStore } from '../store/tripStore';
 
 export function SettingsScreen() {
   const { tripId } = useParams();
@@ -22,8 +22,21 @@ export function SettingsScreen() {
     [state, tripId],
   );
 
-  const exportFile = () => {
-    const json = useTripStore.getState().exportJSON();
+  const photoCount = useMemo(() => photosInUse(state).size, [state]);
+  const [exporting, setExporting] = useState(false);
+
+  const exportFile = async () => {
+    setExporting(true);
+    try {
+      await runExport();
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const runExport = async () => {
+    // ไฟล์สำรองต้องพารูปไปด้วย จึงต้องรออ่านรูปจาก IndexedDB ก่อน
+    const json = await useTripStore.getState().exportJSON();
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -38,7 +51,7 @@ export function SettingsScreen() {
 
   const importFile = async (file: File, mode: 'merge' | 'replace') => {
     const text = await file.text();
-    const result = useTripStore.getState().importJSON(text, mode);
+    const result = await useTripStore.getState().importJSON(text, mode);
     setMessage(
       result.ok
         ? { tone: 'ok', text: 'นำข้อมูลเข้าเรียบร้อย' }
@@ -134,11 +147,17 @@ export function SettingsScreen() {
         <p className="mt-1 text-[13px] text-ink-soft">
           {Object.keys(state.trips).length} ทริป · {Object.keys(state.bills).length} บิล ·{' '}
           {Object.keys(state.settlements).length} การคืนเงิน
+          {photoCount > 0 && ` · ${photoCount} รูป`}
         </p>
 
-        <button type="button" className="btn-quiet mt-3 w-full" onClick={exportFile}>
-          บันทึกไฟล์สำรอง (JSON)
+        <button type="button" className="btn-quiet mt-3 w-full" disabled={exporting} onClick={exportFile}>
+          {exporting ? 'กำลังเตรียมไฟล์…' : 'บันทึกไฟล์สำรอง (JSON)'}
         </button>
+        <p className="mt-1 text-2xs text-ink-faint">
+          {photoCount > 0
+            ? 'ไฟล์รวมรูปบิลและสลิปที่ถ่ายไว้ด้วย ไฟล์จึงใหญ่กว่าปกติ แต่กู้กลับมาได้ครบ'
+            : 'ข้อมูลทั้งหมดอยู่ในเครื่องนี้เท่านั้น เก็บไฟล์นี้ไว้เผื่อเปลี่ยนเครื่องหรือล้างข้อมูลเบราว์เซอร์'}
+        </p>
 
         <input
           ref={fileRef}

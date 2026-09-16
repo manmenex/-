@@ -1,0 +1,143 @@
+import { parseBaht } from '../core/money';
+import type { Money } from '../core/types';
+
+/**
+ * ocr.ts — อ่านตัวเลขจากรูปบิลและสลิปโอน
+ *
+ * ขอบเขตที่ตั้งใจไว้ชัดๆ: ฟีเจอร์นี้ "เสนอตัวเลขให้เลือก" ไม่ใช่ "กรอกให้อัตโนมัติ"
+ *
+ * OCR บนรูปถ่ายบิลกระดาษความร้อนไม่มีทางแม่น 100% การแยกว่าบรรทัดไหนคือรายการ
+ * ไหนคือยอดรวมยิ่งไม่แม่น ถ้าเดาผิดแล้วกรอกให้เงียบๆ ผู้ใช้จะเซ็นรับยอดผิด
+ * โดยไม่รู้ตัว ซึ่งขัดกับหลักของแอปนี้ที่ยอมบล็อกการบันทึกดีกว่าปัดเศษกลบ
+ * จึงคายออกมาเป็นตัวเลือกให้แตะยืนยันเสมอ ผิดก็แค่ไม่แตะ
+ */
+
+export interface AmountCandidate {
+  /** จำนวนเงินเป็นสตางค์ */
+  value: Money;
+  /** ข้อความที่อ่านได้จริง ใช้แสดงให้ผู้ใช้เทียบกับรูป */
+  raw: string;
+  /** ยิ่งมากยิ่งน่าจะเป็นยอดเงิน ใช้เรียงลำดับเท่านั้น ไม่ได้แปลว่าถูก */
+  score: number;
+}
+
+/** เลขจำนวนเต็มยาวกว่านี้ไม่ใช่ยอดเงินแล้ว เป็นเลขอ้างอิง/เลขบัญชี/เบอร์โทร */
+const MAX_WHOLE_DIGITS = 7;
+/** เสนอให้เลือกมากกว่านี้ก็เลือกไม่ไหว */
+export const MAX_CANDIDATES = 6;
+
+/**
+ * ดึงตัวเลขที่ "น่าจะเป็นจำนวนเงิน" ออกจากข้อความที่ OCR อ่านได้
+ *
+ * แยกออกมาเป็นฟังก์ชันบริสุทธิ์เพราะนี่คือส่วนที่ตัดสินว่าผู้ใช้จะเห็นอะไร
+ * และเป็นส่วนเดียวที่เทสได้จริงโดยไม่ต้องมีรูป
+ */
+export function extractAmounts(text: string): AmountCandidate[] {
+  const seen = new Map<number, AmountCandidate>();
+
+  for (const token of String(text ?? '').match(/\d[\d.,]*/g) ?? []) {
+    const candidate = scoreToken(token);
+    if (!candidate) continue;
+    const existing = seen.get(candidate.value);
+    if (!existing || candidate.score > existing.score) seen.set(candidate.value, candidate);
+  }
+
+  return [...seen.values()]
+    .sort((a, b) => b.score - a.score || b.value - a.value)
+    .slice(0, MAX_CANDIDATES);
+}
+
+function scoreToken(token: string): AmountCandidate | null {
+  // OCR ชอบติดจุดหรือคอมมาท้ายมาด้วย ตัดทิ้งก่อน
+  const trimmed = token.replace(/[.,]+$/, '');
+  if (!/\d/.test(trimmed)) return null;
+
+  const parts = trimmed.split('.');
+  // "16.8.2569" เป็นวันที่ ไม่ใช่เงิน
+  if (parts.length > 2) return null;
+
+  const whole = parts[0];
+  const frac = parts[1] ?? '';
+  const digits = whole.replace(/,/g, '');
+  if (digits.length === 0 || digits.length > MAX_WHOLE_DIGITS) return null;
+
+  // เลขอ้างอิงมักขึ้นต้นด้วยศูนย์ ยอดเงินไม่ขึ้นต้นด้วยศูนย์นอกจาก 0.xx
+  if (digits.length > 1 && digits.startsWith('0')) return null;
+
+  const value = parseBaht(trimmed);
+  if (value === null || value <= 0) return null;
+
+  let score = 0;
+  // ทศนิยมสองตำแหน่งคือสัญญาณที่ชัดที่สุดว่าเป็นจำนวนเงิน
+  if (frac.length === 2) score += 40;
+  else if (frac.length > 0) score += 5;
+  // คั่นหลักพันถูกต้องตามรูปแบบ เช่น 2,360 — เลขอ้างอิงไม่ทำแบบนี้
+  if (/^\d{1,3}(,\d{3})+$/.test(whole)) score += 20;
+  // ยอดใหญ่กว่ามักเป็นยอดรวมมากกว่าราคารายการย่อย
+  score += Math.min(20, digits.length * 4);
+
+  return { value, raw: trimmed, score };
+}
+
+// ── ตัวอ่านจริง (โหลด tesseract แบบ lazy) ────────────────────────────────
+
+/**
+ * ไฟล์ของ tesseract เสิร์ฟจาก origin เดียวกับแอป ไม่พึ่ง CDN ภายนอก
+ * จึงใช้ได้ตอนออฟไลน์ และไม่มีใครมาเปลี่ยนไฟล์ใต้เท้าเราทีหลัง
+ * (ก๊อปมาจาก node_modules ตอน build ด้วย scripts/copy-ocr-assets.mjs)
+ */
+/**
+ * ต้องเป็น URL เต็ม ไม่ใช่ path สัมพัทธ์
+ *
+ * corePath กับ langPath ถูกส่งเข้าไปให้ worker ใช้ ซึ่ง worker อยู่ที่ /ocr/worker.min.js
+ * path สัมพัทธ์อย่าง "./ocr/" จะถูกคิดจากที่อยู่ของ worker กลายเป็น /ocr/ocr/ แล้วโหลดไม่เจอ
+ * (แอปตั้ง base เป็น "./" เพราะ deploy อยู่ใต้ subpath /-/ ของ GitHub Pages)
+ *
+ * คิดตอนเรียกใช้ ไม่ใช่ตอนโหลดโมดูล เพราะ document ไม่มีใน environment ของเทส
+ */
+function ocrBase(): string {
+  return new URL(`${import.meta.env.BASE_URL}ocr/`, document.baseURI).href;
+}
+
+let workerPromise: Promise<import('tesseract.js').Worker> | null = null;
+
+async function getWorker() {
+  if (!workerPromise) {
+    workerPromise = (async () => {
+      const { createWorker } = await import('tesseract.js');
+      const base = ocrBase();
+      const worker = await createWorker('eng', 1, {
+        workerPath: `${base}worker.min.js`,
+        corePath: base,
+        langPath: base,
+        gzip: true,
+      });
+      // อ่านเฉพาะตัวเลข ตัวอักษรไทยไม่ได้ใช้และทำให้ผลเพี้ยนกว่าเดิม
+      await worker.setParameters({ tessedit_char_whitelist: '0123456789.,' });
+      return worker;
+    })().catch((error) => {
+      workerPromise = null;
+      throw error;
+    });
+  }
+  return workerPromise;
+}
+
+/** อ่านตัวเลขจากรูป คืนตัวเลือกให้ผู้ใช้แตะเลือกเอง */
+export async function readAmounts(image: Blob): Promise<AmountCandidate[]> {
+  const worker = await getWorker();
+  const { data } = await worker.recognize(image);
+  return extractAmounts(data.text);
+}
+
+/** ปล่อย worker ทิ้ง — กิน RAM หลายสิบเมกะไบต์ ไม่ควรค้างไว้หลังใช้เสร็จ */
+export async function releaseOcr(): Promise<void> {
+  if (!workerPromise) return;
+  const pending = workerPromise;
+  workerPromise = null;
+  try {
+    await (await pending).terminate();
+  } catch {
+    // ปล่อยไม่สำเร็จก็ไม่มีอะไรให้ทำต่อ
+  }
+}

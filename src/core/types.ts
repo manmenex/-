@@ -102,10 +102,26 @@ export interface Bill {
 
   /** ยอดสุทธิที่พิมพ์อยู่บนบิลจริง */
   statedTotal: Money;
+  /**
+   * memberId ของคนที่ "เลี้ยง" บิลใบนี้ — รับผิดชอบยอดทั้งบิลคนเดียว
+   *
+   * ยังเก็บไว้ว่าใครกินอะไรตามปกติ (ดูได้ใน audit) แต่ยอดที่ต้องจ่ายจริง
+   * ของทุกคนจะเป็น 0 แล้วโยนไปรวมที่คนเลี้ยงทั้งหมด
+   * แยกจาก payers เพราะ "คนเลี้ยง" กับ "คนควักเงินให้ร้าน" อาจเป็นคนละคน
+   * เช่น แมนเลี้ยง แต่อู๋สำรองจ่ายไปก่อน — แมนก็ยังติดอู๋เต็มจำนวน
+   */
+  treatedBy?: string;
   /** memberId ที่รับส่วนต่างจากการปัดเศษ */
   roundingTargetId?: string;
   /** ผู้ใช้กด "ยอมรับส่วนต่าง" ไว้แล้ว (ส่วนต่างเกิน 5 สตางค์) */
   acceptedDifference?: boolean;
+
+  /**
+   * id ของรูปบิลที่ถ่ายไว้ ตัวรูปอยู่ใน IndexedDB คนละ database (store/photos.ts)
+   * เก็บแค่ id ที่นี่ เพราะ state ก้อนนี้ถูกแปลงเป็น JSON ใหม่ทุกครั้งที่มีอะไรเปลี่ยน
+   * และถูกฝังลงลิงก์แชร์ด้วย
+   */
+  photoIds?: string[];
 }
 
 export type SettlementMethod =
@@ -126,6 +142,8 @@ export interface Settlement {
   method: SettlementMethod;
   refNumber?: string;
   note?: string;
+  /** id ของรูปสลิปโอน เก็บเหมือน Bill.photoIds */
+  slipPhotoId?: string;
 }
 
 export interface Waiver {

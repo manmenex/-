@@ -5,3 +5,4 @@ export * from './computeBill';
 export * from './computeDebts';
 export * from './settle';
 export * from './validate';
+export * from './wheel';

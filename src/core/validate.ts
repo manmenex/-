@@ -136,7 +136,13 @@ export function validateBill(
     issues.push({
       severity: issue.code === 'negativeShare' ? 'warning' : 'error',
       field:
-        issue.code === 'itemSplit' ? 'items' : issue.code === 'missingRate' ? 'currency' : 'total',
+        issue.code === 'itemSplit'
+          ? 'items'
+          : issue.code === 'missingRate'
+            ? 'currency'
+            : issue.code === 'unknownTreater' || issue.code === 'unknownMember'
+              ? 'members'
+              : 'total',
       message: issue.message,
       itemId: issue.itemId,
     });

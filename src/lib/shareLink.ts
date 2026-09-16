@@ -84,6 +84,10 @@ export function compactIds(data: AppData): AppData {
       })),
       payers: entry.payers.map((payer) => ({ ...payer, memberId: member(payer.memberId) })),
       roundingTargetId: entry.roundingTargetId ? member(entry.roundingTargetId) : undefined,
+      treatedBy: entry.treatedBy ? member(entry.treatedBy) : undefined,
+      // รูปอยู่ใน IndexedDB ของเครื่องต้นทาง ส่งผ่านลิงก์ไม่ได้ ตัด id ทิ้งไปเลย
+      // ไม่งั้นปลายทางจะเห็นช่องรูปว่างๆ ที่กดแล้วไม่มีอะไร
+      photoIds: undefined,
     })),
     settlements: data.settlements.map((entry, index) => ({
       ...entry,
@@ -91,6 +95,7 @@ export function compactIds(data: AppData): AppData {
       tripId: trip(entry.tripId),
       fromMemberId: member(entry.fromMemberId),
       toMemberId: member(entry.toMemberId),
+      slipPhotoId: undefined,
     })),
     waivers: data.waivers.map((entry, index) => ({
       ...entry,

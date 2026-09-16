@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
 import { MoneyInput, QuantityInput, Stepper, TextField, noAutofill } from '../components/Inputs';
+import { PhotoAttach } from '../components/PhotoAttach';
+import { ScanAmount } from '../components/ScanAmount';
 import { Sheet } from '../components/Sheet';
+import { WheelOfFate } from '../components/WheelOfFate';
 import { sumMoney, sumShares } from '../core/money';
 import {
   CURRENCIES,
@@ -35,7 +38,7 @@ const STEP_TITLES = [
   'รายการ',
   'ใครกินอะไร',
   'ค่าธรรมเนียม',
-  'ใครจ่าย',
+  'ใครจ่าย · เลี้ยง',
   'ตรวจสอบ',
 ];
 
@@ -64,6 +67,8 @@ function blankBill(tripId: string, trip?: Trip): Bill {
 export function BillEditorScreen() {
   const { tripId = '', billId } = useParams();
   const navigate = useNavigate();
+  // มาจากกงล้อแห่งโชคชะตา: เปิดบิลใหม่โดยตั้งคนเลี้ยงไว้ให้แล้ว
+  const presetTreat = (useLocation().state as { treatedBy?: string } | null)?.treatedBy;
   const state = useTripStore();
   const trip = state.trips[tripId];
   const members = useMemo(() => selectTripMembers(state, tripId), [state, tripId]);
@@ -73,8 +78,12 @@ export function BillEditorScreen() {
 
   const [bill, setBill] = useState<Bill>(() => {
     const draft = useTripStore.getState().drafts[draftKey];
-    if (draft) return draft.bill;
-    return existing ? structuredClone(existing) : blankBill(tripId, state.trips[tripId]);
+    const base = draft
+      ? draft.bill
+      : existing
+        ? structuredClone(existing)
+        : blankBill(tripId, state.trips[tripId]);
+    return presetTreat ? { ...base, treatedBy: presetTreat } : base;
   });
   const [step, setStep] = useState(() => useTripStore.getState().drafts[draftKey]?.step ?? 1);
   const [restored] = useState(() => Boolean(useTripStore.getState().drafts[draftKey]));
@@ -340,6 +349,17 @@ function StepHeader({
           onChange={(note) => patch({ note })}
           placeholder="ไม่ใส่ก็ได้"
         />
+      </div>
+
+      <div className="mt-6">
+        <PhotoAttach
+          label="รูปบิล"
+          ids={bill.photoIds ?? []}
+          onChange={(photoIds) => patch({ photoIds: photoIds.length > 0 ? photoIds : undefined })}
+        />
+        <p className="mt-1 text-2xs text-ink-faint">
+          เก็บไว้เทียบตอนมีคนสงสัยยอด รูปอยู่ในเครื่องนี้เท่านั้น ไม่ได้ส่งไปไหน
+        </p>
       </div>
     </div>
   );
@@ -1043,6 +1063,16 @@ function StatedTotalField({
           ต่างจากที่คำนวณได้ {formatMoney(Math.abs(difference), bill.currency)}
         </p>
       )}
+
+      <ScanAmount
+        photoIds={bill.photoIds ?? []}
+        currency={bill.currency}
+        hint="อ่านยอดจากรูปบิล"
+        onPick={(amount) => {
+          onTotalTouched();
+          patch({ statedTotal: amount });
+        }}
+      />
     </div>
   );
 }
@@ -1076,8 +1106,21 @@ function StepPayers({
     });
   };
 
+  const treater = members.find((member) => member.id === bill.treatedBy);
+  const payerNames = bill.payers
+    .filter((payer) => payer.memberId !== bill.treatedBy && payer.amount > 0)
+    .map((payer) => members.find((member) => member.id === payer.memberId)?.name ?? '?');
+
   return (
     <div>
+      <TreatPicker bill={bill} patch={patch} members={members} />
+
+      {treater && payerNames.length > 0 && (
+        <p className="mb-4 border-l-2 border-rule px-3 py-2 text-[13px] text-ink-soft">
+          {`${payerNames.join(' และ ')}สำรองจ่ายให้ก่อน ${treater.name}จะติดเงินคนที่สำรองจ่ายตามที่แต่ละคนออกไป`}
+        </p>
+      )}
+
       {!multi ? (
         <>
           <p className="text-2xs uppercase tracking-wide text-ink-soft">ใครออกเงินให้ร้าน</p>
@@ -1152,6 +1195,109 @@ function StepPayers({
   );
 }
 
+/**
+ * เลือกคนเลี้ยง — วางไว้เหนือช่องผู้จ่าย เพราะมันเปลี่ยนความหมายของทั้งบิล
+ *
+ * ไม่แตะ payers ถ้าผู้ใช้เลือกคนจ่ายไว้แล้ว "คนเลี้ยง" กับ "คนควักเงิน" คนละเรื่องกัน
+ * เดาให้เฉพาะตอนที่ยังไม่ได้เลือกใคร ซึ่งเป็นเคสที่พบบ่อยสุด
+ */
+function TreatPicker({
+  bill,
+  patch,
+  members,
+}: {
+  bill: Bill;
+  patch: (changes: Partial<Bill>) => void;
+  members: Member[];
+}) {
+  const [wheelOpen, setWheelOpen] = useState(false);
+  const bills = useTripStore((state) => selectTripBills(state, bill.tripId));
+  const treater = members.find((member) => member.id === bill.treatedBy);
+
+  const setTreat = (memberId: string | undefined) => {
+    if (!memberId) {
+      patch({ treatedBy: undefined });
+      return;
+    }
+    patch(
+      bill.payers.length === 0
+        ? { treatedBy: memberId, payers: [{ memberId, amount: bill.statedTotal }] }
+        : { treatedBy: memberId },
+    );
+  };
+
+  const pickWinner = (winner: { id: string; name: string; guest?: boolean }) => {
+    const memberId = winner.guest
+      ? useTripStore.getState().addMember(bill.tripId, winner.name)
+      : winner.id;
+    setTreat(memberId);
+    setWheelOpen(false);
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="flex items-baseline justify-between">
+        <p className="text-2xs uppercase tracking-wide text-ink-soft">มีใครเลี้ยงไหม</p>
+        <button type="button" className="tap text-[13px] text-accent" onClick={() => setWheelOpen(true)}>
+          กงล้อแห่งโชคชะตา
+        </button>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          aria-pressed={!bill.treatedBy}
+          className={`tap border px-3 text-[13px] ${
+            bill.treatedBy ? 'border-rule text-ink-soft' : 'border-ink bg-ink text-paper'
+          }`}
+          onClick={() => setTreat(undefined)}
+        >
+          หารกันตามปกติ
+        </button>
+        {members.map((member) => {
+          const active = bill.treatedBy === member.id;
+          return (
+            <button
+              key={member.id}
+              type="button"
+              aria-pressed={active}
+              className={`tap border px-3 text-[13px] ${
+                active ? 'border-ink bg-ink text-paper' : 'border-rule text-ink-soft'
+              }`}
+              onClick={() => setTreat(active ? undefined : member.id)}
+            >
+              {member.name}เลี้ยง
+            </button>
+          );
+        })}
+      </div>
+
+      {treater && (
+        <p className="mt-2 border-l-2 border-accent bg-accent-soft px-3 py-2 text-[13px]">
+          {treater.name}รับผิดชอบทั้งบิล คนอื่นไม่ต้องจ่ายสักบาท
+          <span className="mt-0.5 block text-2xs text-ink-soft">
+            ยังเก็บไว้ว่าใครกินอะไร ดูได้ในหน้าบิล
+          </span>
+        </p>
+      )}
+
+      <Sheet open={wheelOpen} title="กงล้อแห่งโชคชะตา" onClose={() => setWheelOpen(false)}>
+        <WheelOfFate
+          members={members}
+          bills={bills}
+          footer={(winner) => (
+            <button type="button" className="btn-quiet mt-3 w-full" onClick={() => pickWinner(winner)}>
+              {winner.guest
+                ? `เพิ่ม ${winner.name} เข้าทริปแล้วให้เลี้ยงบิลนี้`
+                : `ให้ ${winner.name} เลี้ยงบิลนี้`}
+            </button>
+          )}
+        />
+      </Sheet>
+    </div>
+  );
+}
+
 // ── Step 6 ───────────────────────────────────────────────────────────────
 
 function StepReview({
@@ -1178,8 +1324,16 @@ function StepReview({
   const mismatch = computation.issues.find((issue) => issue.code === 'totalMismatch');
   const foreign = (bill.currency ?? HOME_CURRENCY) !== HOME_CURRENCY;
 
+  const treaterName = bill.treatedBy ? nameOf(bill.treatedBy) : undefined;
+
   return (
     <div>
+      {treaterName && (
+        <p className="mb-4 border-l-2 border-accent bg-accent-soft px-3 py-2 text-[13px]">
+          {treaterName}เลี้ยงบิลนี้ทั้งใบ ยอดของคนอื่นจึงเป็น 0
+        </p>
+      )}
+
       <ul>
         {Object.keys(shares)
           .sort((a, b) => (nameOf(a) < nameOf(b) ? -1 : 1))

@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Amount } from '../components/Amount';
 import { AppBar } from '../components/AppBar';
 import { Avatar } from '../components/Avatar';
+import { PhotoLightbox } from '../components/PhotoAttach';
 import { Sheet } from '../components/Sheet';
 import { computeBillDebtsDetailed } from '../core/computeDebts';
 import { computeBillShares } from '../core/computeBill';
@@ -30,6 +31,9 @@ export function BillDetailScreen() {
   const nameOf = (id: string) => members.find((member) => member.id === id)?.name ?? id;
   const memberOf = (id: string) => members.find((member) => member.id === id);
   const tripHasSettlements = selectTripSettlements(state, tripId).length > 0;
+  const treater = bill.treatedBy ? memberOf(bill.treatedBy) : undefined;
+  // ก่อนโดนเลี้ยง แต่ละคนจะต้องจ่ายเท่าไหร่ — step "เลี้ยง" หักไว้เท่าไหร่ก็เท่านั้น
+  const treatStep = computation.audit.steps.find((step) => step.key === 'treat');
 
   return (
     <div className="min-h-dvh pb-28">
@@ -50,6 +54,12 @@ export function BillDetailScreen() {
           </Link>
         }
       />
+
+      {treater && (
+        <p className="mx-5 mt-4 border-l-2 border-accent bg-accent-soft px-3 py-2 text-[13px]">
+          {treater.name}เลี้ยงบิลนี้ทั้งใบ คนอื่นไม่ต้องจ่าย
+        </p>
+      )}
 
       <section className="px-5 pt-5">
         <p className="text-2xs uppercase tracking-wide text-ink-soft">รายการ</p>
@@ -91,15 +101,37 @@ export function BillDetailScreen() {
         </ul>
       </section>
 
+      {(bill.photoIds?.length ?? 0) > 0 && (
+        <section className="mt-6 px-5">
+          <p className="text-2xs uppercase tracking-wide text-ink-soft">รูปบิล</p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {bill.photoIds?.map((photoId) => (
+              <li key={photoId}>
+                <PhotoLightbox id={photoId} size={80} label="ดูรูปบิลเต็ม" />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="mt-6 px-5">
-        <p className="text-2xs uppercase tracking-wide text-ink-soft">ส่วนที่แต่ละคนรับผิดชอบ</p>
+        <p className="text-2xs uppercase tracking-wide text-ink-soft">
+          {treater ? 'ส่วนที่แต่ละคนรับผิดชอบ (หลังโดนเลี้ยง)' : 'ส่วนที่แต่ละคนรับผิดชอบ'}
+        </p>
         <ul className="mt-1">
           {Object.keys(computation.shares)
             .sort((a, b) => (nameOf(a) < nameOf(b) ? -1 : 1))
             .map((memberId) => (
               <li key={memberId} className="flex items-center gap-2 border-b border-rule py-2.5">
                 {memberOf(memberId) && <Avatar member={memberOf(memberId)!} size={26} />}
-                <span className="min-w-0 flex-1 truncate text-[15px]">{nameOf(memberId)}</span>
+                <span className="min-w-0 flex-1 truncate text-[15px]">
+                  {nameOf(memberId)}
+                  {treatStep && (treatStep.deltaByMember[memberId] ?? 0) < 0 && (
+                    <span className="block text-2xs text-ink-faint">
+                      ปกติจะตก {formatMoney(-treatStep.deltaByMember[memberId], code)}
+                    </span>
+                  )}
+                </span>
                 {foreign ? (
                   <>
                     <Amount

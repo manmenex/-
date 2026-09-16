@@ -7,3 +7,7 @@ coverage
 dev-dist
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# ไฟล์ของ tesseract ก๊อปมาจาก node_modules ตอน build (scripts/copy-ocr-assets.mjs)
+public/ocr
+ocr-probe.mjs

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { PhotoAttach } from './PhotoAttach';
+import { ScanAmount } from './ScanAmount';
 import { Sheet } from './Sheet';
 import { MoneyInput, TextField } from './Inputs';
 import { Amount } from './Amount';
@@ -42,6 +44,7 @@ export function SettleSheet({
   const [method, setMethod] = useState<SettlementMethod | null>(null);
   const [refNumber, setRef] = useState('');
   const [note, setNote] = useState('');
+  const [slipIds, setSlipIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -53,6 +56,7 @@ export function SettleSheet({
     setMethod(null);
     setRef('');
     setNote('');
+    setSlipIds([]);
   }, [open, prefill?.fromMemberId, prefill?.toMemberId, prefill?.amount]);
 
   const nameOf = (id: string) => members.find((member) => member.id === id)?.name ?? '';
@@ -99,6 +103,7 @@ export function SettleSheet({
         method: method ?? 'other',
         refNumber: refNumber || undefined,
         note: note || undefined,
+        slipPhotoId: slipIds[0],
       });
     }
     onClose();
@@ -178,6 +183,15 @@ export function SettleSheet({
 
           <div className="mt-4">
             <TextField label="เลขอ้างอิง" value={refNumber} onChange={setRef} placeholder="ไม่ใส่ก็ได้" />
+          </div>
+
+          <div className="mt-5">
+            <PhotoAttach label="สลิปโอน" ids={slipIds} onChange={setSlipIds} max={1} />
+            <ScanAmount
+              photoIds={slipIds}
+              hint="อ่านยอดจากสลิป"
+              onPick={setAmount}
+            />
           </div>
         </>
       )}
