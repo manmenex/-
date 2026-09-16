@@ -23,6 +23,7 @@ import { computeOutstanding } from '../core/settle';
 import { validateBill } from '../core/validate';
 import type { Adjustment, Bill, Category, LineItem, Member, Money, Split, Trip } from '../core/types';
 import { CATEGORIES, CATEGORY_LABEL } from '../lib/format';
+import { payersAfterTreat } from '../lib/treat';
 import { lookupRate, loadRateTable, type RateTable } from '../lib/rates';
 import { newId, todayISO } from '../store/ids';
 import {
@@ -1116,9 +1117,25 @@ function StepPayers({
       <TreatPicker bill={bill} patch={patch} members={members} />
 
       {treater && payerNames.length > 0 && (
-        <p className="mb-4 border-l-2 border-rule px-3 py-2 text-[13px] text-ink-soft">
-          {`${payerNames.join(' และ ')}สำรองจ่ายให้ก่อน ${treater.name}จะติดเงินคนที่สำรองจ่ายตามที่แต่ละคนออกไป`}
-        </p>
+        <div className="mb-4 border-l-2 border-rule px-3 py-2">
+          <p className="text-[13px] text-ink-soft">
+            {`${payerNames.join(' และ ')}สำรองจ่ายให้ก่อน ${treater.name}จะติดเงินคนที่สำรองจ่ายตามที่แต่ละคนออกไป`}
+          </p>
+          {/*
+            ยอดจ่ายหลายคนที่พิมพ์มากับมือ แอปจะไม่ทับให้เอง แต่ถ้าที่จริง
+            คนเลี้ยงควักเองคนเดียว กดตรงนี้ทีเดียวจบ
+          */}
+          <button
+            type="button"
+            className="tap mt-1 text-left text-[13px] text-accent"
+            onClick={() => {
+              setMulti(false);
+              patch({ payers: [{ memberId: treater.id, amount: bill.statedTotal }] });
+            }}
+          >
+            ที่จริง{treater.name}ควักเองคนเดียว →
+          </button>
+        </div>
       )}
 
       {!multi ? (
@@ -1219,11 +1236,8 @@ function TreatPicker({
       patch({ treatedBy: undefined });
       return;
     }
-    patch(
-      bill.payers.length === 0
-        ? { treatedBy: memberId, payers: [{ memberId, amount: bill.statedTotal }] }
-        : { treatedBy: memberId },
-    );
+    const payers = payersAfterTreat(bill, memberId);
+    patch(payers ? { treatedBy: memberId, payers } : { treatedBy: memberId });
   };
 
   const pickWinner = (winner: { id: string; name: string; guest?: boolean }) => {
