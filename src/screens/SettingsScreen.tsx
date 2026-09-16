@@ -5,6 +5,7 @@ import { Avatar } from '../components/Avatar';
 import { Sheet } from '../components/Sheet';
 import { noAutofill } from '../components/Inputs';
 import { currencyOf } from '../core/currency';
+import { BUILD_INFO, checkForUpdate } from '../lib/appUpdate';
 import { photosInUse, selectTripMembers, useTripStore } from '../store/tripStore';
 
 export function SettingsScreen() {
@@ -24,6 +25,7 @@ export function SettingsScreen() {
 
   const photoCount = useMemo(() => photosInUse(state).size, [state]);
   const [exporting, setExporting] = useState(false);
+  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'latest' | 'failed'>('idle');
 
   const exportFile = async () => {
     setExporting(true);
@@ -175,6 +177,40 @@ export function SettingsScreen() {
         </button>
       </section>
 
+      {/*
+        เวอร์ชันที่กำลังรันอยู่ — เคยเสียเวลาเดากันหลายรอบว่า deploy ขึ้นแล้วหรือยัง
+        ตัวเลขตรงนี้ตอบได้ในวินาทีเดียวโดยไม่ต้องเดา
+      */}
+      <section className="mt-8 px-5">
+        <p className="text-2xs uppercase tracking-wide text-ink-soft">เวอร์ชันแอป</p>
+        <p className="tnum mt-1 text-[13px] text-ink-soft">
+          {formatBuildTime(BUILD_INFO.time)}
+          {BUILD_INFO.commit !== 'local' && ` · ${BUILD_INFO.commit}`}
+        </p>
+
+        <button
+          type="button"
+          className="btn-quiet mt-3 w-full"
+          disabled={updateState === 'checking'}
+          onClick={async () => {
+            setUpdateState('checking');
+            const ok = await checkForUpdate(true);
+            // มีของใหม่จริง แอปจะติดตั้งแล้วรีโหลดเอง ข้อความนี้จึงได้เห็นเฉพาะตอนที่ใหม่อยู่แล้ว
+            setUpdateState(ok ? 'latest' : 'failed');
+          }}
+        >
+          {updateState === 'checking' ? 'กำลังตรวจ…' : 'ตรวจหาเวอร์ชันใหม่'}
+        </button>
+        {updateState === 'latest' && (
+          <p className="mt-1.5 text-2xs text-settled">ใช้เวอร์ชันล่าสุดอยู่แล้ว</p>
+        )}
+        {updateState === 'failed' && (
+          <p className="mt-1.5 text-2xs text-ink-soft">
+            ตรวจไม่ได้ตอนนี้ ลองใหม่ตอนต่อเน็ต หรือปิดแอปแล้วเปิดใหม่
+          </p>
+        )}
+      </section>
+
       {trip && (
         <section className="mt-8 px-5">
           <button
@@ -235,4 +271,17 @@ export function SettingsScreen() {
       </Sheet>
     </div>
   );
+}
+
+/** เวลา build เป็นข้อความสั้นๆ ที่คนอ่านแล้วเทียบกับตอน deploy ได้ */
+function formatBuildTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }

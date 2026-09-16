@@ -3,12 +3,27 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+/**
+ * ฝังข้อมูลว่า build ชุดนี้มาจากไหน เพื่อให้ตอบได้ทันทีว่าเครื่องนั้นรันเวอร์ชันไหนอยู่
+ * เคยเสียเวลาเดากันหลายรอบว่า deploy ขึ้นแล้วหรือยัง
+ */
+// ไม่ได้ลง @types/node ไว้ และไม่อยากลงเพิ่มเพื่อบรรทัดเดียว
+declare const process: { env: Record<string, string | undefined> };
+
+const buildInfo = {
+  __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  __BUILD_COMMIT__: JSON.stringify((process.env.GITHUB_SHA ?? 'local').slice(0, 7)),
+};
+
 export default defineConfig({
   base: './',
+  define: buildInfo,
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // ลงทะเบียนเองใน src/lib/appUpdate.ts เพื่อจะได้สั่งเช็กเวอร์ชันใหม่เพิ่มได้
+      injectRegister: false,
       includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'หารบิลทริป',
