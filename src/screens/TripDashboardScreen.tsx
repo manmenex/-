@@ -146,6 +146,15 @@ export function TripDashboardScreen() {
         </Link>
       )}
 
+      {/* เครื่องมือเสริม */}
+      {members.length > 0 && (
+        <div className="px-5 pb-5">
+          <Link to={`/trip/${tripId}/wheel`} className="tap inline-flex items-center text-[13px] text-accent">
+            กงล้อแห่งโชคชะตา — สุ่มคนเลี้ยง
+          </Link>
+        </div>
+      )}
+
       {/* b) ตัวเลขภาพรวม */}
       <section className="rule-solid grid grid-cols-4 gap-2 px-5 py-3">
         <Stat label="ใช้ไป" value={outstanding.totals.tripTotal} />
@@ -316,6 +325,9 @@ export function TripDashboardScreen() {
                           <span className="text-owed">ยอดไม่ตรง</span>
                         ) : evenFromStart ? (
                           <span className="text-settled">จ่ายกันครบแล้ว</span>
+                        ) : bill.treatedBy ? (
+                          // "1 คนร่วมบิล" จะหลอกตา ทั้งโต๊ะร่วมบิล แค่คนเดียวเป็นคนจ่าย
+                          <span className="text-ink-faint">{nameOf(bill.treatedBy)}เลี้ยง</span>
                         ) : (
                           <span className="text-ink-faint">{shareCount} คนร่วมบิล</span>
                         )}
