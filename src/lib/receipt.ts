@@ -122,6 +122,12 @@ const SUMMARY: { kind: SummaryKind; words: string[]; suffix?: string[]; anywhere
     // "Amount Tendered" ขึ้นต้นด้วย amount ซึ่งไปตรงกับยอดรวม ต้องจับที่ท้ายคำ
     suffix: ['tendered'],
   },
+  /**
+   * บรรทัดที่รู้ว่าคืออะไร แต่ไม่ใช่เงินของบิลนี้
+   * ใบซูเปอร์มาร์เก็ตไทยมี "ประหยัดวันนี้" กับ "คะแนนสะสม" ต่อท้ายยอดรวม
+   * ถ้าไม่รู้จัก มันจะกลายเป็นรายการสินค้าราคา 60.25 กับ 1,255 บาท
+   */
+  { kind: 'info', words: ['ประหยัด', 'คะแนนสะสม', 'คะแนน', 'แต้ม', 'points', 'you saved', 'savings'] },
   {
     kind: 'subtotal',
     words: ['ยอดรวมย่อย', 'รวมย่อย', 'subtotal', 'sub total', 'sub-total', 'taxable'],
@@ -141,7 +147,7 @@ type SummaryKind =
   | 'service'
   | 'vat'
   | 'payment'
-  | 'included';
+  | 'info';
 
 /**
  * บรรทัดที่บอกว่า "ภาษีรวมอยู่ในยอดแล้ว" ไม่ใช่ยอดที่ต้องบวกหรือยอดของบิล
@@ -382,6 +388,13 @@ function dropOddAmounts(rows: Row[]): Row[] {
 }
 
 function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
+  /**
+   * ใบบอกเองว่าภาษีรวมอยู่ในยอดแล้ว ("(VAT INCLUDED)", "TOTAL INCLUDES GST OF")
+   * ต้องดูทั้งใบ ไม่ใช่เฉพาะบรรทัดที่มีตัวเลข เพราะมันมักอยู่บนหัวบิล
+   * ถ้าไม่ดู จะเอาภาษีไปบวกทับยอดที่รวมภาษีอยู่แล้ว
+   */
+  const taxInside = lines.some((line) => TAX_INCLUDED.test(collapse(line.text).toLowerCase()));
+
   // ตัดหัวบิลทิ้งถ้าหาหัวตารางเจอ ไม่เจอก็ใช้ทั้งใบเหมือนเดิม
   const headerAt = lines.findIndex((line) => isTableHeader(collapse(line.text)));
   const body = headerAt >= 0 ? lines.slice(headerAt + 1) : lines;
@@ -413,9 +426,44 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
 
   const split = findSubtotalSplit(rows, (row) => nameFrom(row.line, withCount));
   const hasSplit = split !== null;
-  const itemRows = hasSplit ? rows.slice(0, split) : rows.filter(isItemRow);
-  // หาจุดตัดไม่เจอก็ยังต้องอ่านบรรทัดสรุป ไม่งั้นยอดบนใบเสร็จหายไปเฉยๆ
-  const restRows = hasSplit ? rows.slice(split) : rows.filter((row) => !isItemRow(row));
+
+  /**
+   * หาจุดตัดด้วยผลรวมไม่เจอ ก็ใช้บรรทัดยอดรวมบรรทัดแรกเป็นเส้นแบ่งแทน
+   *
+   * ของเดิมคัดทีละบรรทัดทั้งใบ บรรทัดท้ายบิลที่ OCR อ่านชื่อเพี้ยนจนไม่รู้จัก
+   * จึงกลายเป็นรายการสินค้า (ใบ Tops: "ประหยัดวันนี้" อ่านได้เป็น "ประชปัตวันน"
+   * เลยกลายเป็นสินค้าราคา 60.25) พอมีเส้นแบ่งแล้วของท้ายบิลจะไม่ปนขึ้นมา
+   *
+   * ต้องมีรายการนำหน้าอย่างน้อยสองบรรทัดก่อน กันสินค้าที่ชื่อขึ้นต้นด้วย "รวม"
+   * ไปตัดบิลตั้งแต่บรรทัดแรกๆ
+   */
+  const ENDS_ITEMS: (SummaryKind | null)[] = ['sub', 'net', 'subtotal'];
+  const stopAt = rows.findIndex(
+    (row, index) => index >= 2 && ENDS_ITEMS.includes(classify(nameFrom(row.line, withCount))),
+  );
+  const boundary = hasSplit ? split : stopAt >= 0 ? stopAt : rows.length;
+
+  /**
+   * ในเขตรายการก็ยังต้องคัดบรรทัดที่รู้ว่าเป็นอะไรออก เช่นบรรทัดจ่ายเงิน
+   * ที่บางใบพิมพ์ไว้ก่อนบรรทัดยอดรวม
+   * ยอดติดลบยังเก็บไว้ เพราะเป็นคูปองของสินค้าบรรทัดบน ไม่ใช่บรรทัดสรุป
+   */
+  const inItems = (row: Row) => classify(collapse(row.line.text)) === null;
+  const itemRows = hasSplit ? rows.slice(0, boundary) : rows.slice(0, boundary).filter(inItems);
+  // ยังต้องอ่านบรรทัดสรุปต่อ ไม่งั้นยอดบนใบเสร็จหายไปเฉยๆ
+  const restRows = hasSplit
+    ? rows.slice(boundary)
+    : rows.filter((row, index) => index >= boundary || !inItems(row));
+
+  /**
+   * ยอดติดลบที่แทรกอยู่ระหว่างรายการ คือคูปองของสินค้าบรรทัดบน
+   * (ใบ Tops: "CPN3 - BHT -10.50" ใต้ JTB สันนอกสไลซ์)
+   * มันถูกหักออกจากยอดรวมบนใบไปแล้ว ต้องหักจากผลบวกรายการด้วย
+   * ไม่งั้นรายการจะบวกได้มากกว่ายอดบนใบเสมอ แล้วไม่มีวันตรงกัน
+   */
+  const itemDiscount = itemRows
+    .filter((row) => row.amount < 0)
+    .reduce((total, row) => total + Math.abs(row.amount), 0);
 
   for (const row of itemRows) {
     const label = nameFrom(row.line, withCount);
@@ -456,12 +504,12 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
     else if (kind === 'vat') result.vat ??= value;
   }
 
-  const itemsTotal = sum(result.items.map((item) => item.lineTotal));
+  const itemsNet = sum(result.items.map((item) => item.lineTotal)) - itemDiscount;
   const expected =
-    (subtotal ?? itemsTotal) -
+    (subtotal ?? itemsNet) -
     (result.discount ?? 0) +
     (result.serviceCharge ?? 0) +
-    (result.vat ?? 0);
+    (taxInside ? 0 : (result.vat ?? 0));
 
   /**
    * ไม่มีบรรทัดที่บอกยอดสุทธิชัดๆ (OCR อ่านคำเพี้ยน) ให้ใช้ยอดที่ประกอบขึ้นเอง
@@ -491,7 +539,7 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
 
   result.reconciled =
     result.items.length > 0 &&
-    itemsTotal === (subtotal ?? itemsTotal) &&
+    itemsNet === (subtotal ?? itemsNet) &&
     result.total !== undefined &&
     expected === result.total &&
     !missed;
@@ -759,7 +807,7 @@ function classify(label: string): SummaryKind | null {
     .trim();
   if (!normalized) return null;
   // คอลัมน์จำนวนชิ้นอยู่ซ้ายสุด เลขจึงหลงมาติดหน้าคำว่า "Subtotal:" ได้
-  if (TAX_INCLUDED.test(normalized)) return 'included';
+  if (TAX_INCLUDED.test(normalized)) return 'info';
   const candidates = [
     normalized,
     normalized.replace(/^\d{1,2}\s+/, ''),
