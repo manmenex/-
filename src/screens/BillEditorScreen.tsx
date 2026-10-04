@@ -200,7 +200,16 @@ export function BillEditorScreen() {
       )}
 
       <div className="px-5 py-5">
-        {step === 1 && <StepHeader bill={bill} patch={patch} tripId={tripId} />}
+        {step === 1 && (
+          <StepHeader
+            bill={bill}
+            patch={patch}
+            tripId={tripId}
+            members={members}
+            onScanned={() => setStep(2)}
+            onTotalTouched={() => setTotalTouched(true)}
+          />
+        )}
         {step === 2 && (
           <StepItems
             bill={bill}
@@ -312,10 +321,17 @@ function StepHeader({
   bill,
   patch,
   tripId,
+  members,
+  onScanned,
+  onTotalTouched,
 }: {
   bill: Bill;
   patch: (changes: Partial<Bill>) => void;
   tripId: string;
+  members: Member[];
+  /** พาไปหน้ารายการ หลังใส่ของที่สแกนได้ลงบิลแล้ว */
+  onScanned: () => void;
+  onTotalTouched: () => void;
 }) {
   return (
     <div>
@@ -379,6 +395,22 @@ function StepHeader({
         <p className="mt-1 text-2xs text-ink-faint">
           เก็บไว้เทียบตอนมีคนสงสัยยอด รูปอยู่ในเครื่องนี้เท่านั้น ไม่ได้ส่งไปไหน
         </p>
+
+        {/*
+          ปุ่มสแกนอยู่ตรงนี้ด้วย ไม่ใช่เฉพาะหน้ารายการ
+          คนถ่ายรูปบิลตรงนี้เสร็จแล้วอยากได้รายการเลย ไม่ควรต้องไปหาปุ่มอีกหน้า
+          ใส่ลงบิลเสร็จแล้วพาไปหน้ารายการต่อให้ จะได้เห็นของที่เพิ่งอ่านมาทันที
+        */}
+        <div className="mt-4">
+          <ReceiptScanner
+            bill={bill}
+            members={members}
+            patch={patch}
+            onTotalTouched={onTotalTouched}
+            prominent={bill.items.length === 0}
+            onApplied={onScanned}
+          />
+        </div>
       </div>
     </div>
   );

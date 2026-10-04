@@ -23,6 +23,7 @@ export function ReceiptScanner({
   patch,
   onTotalTouched,
   prominent = false,
+  onApplied,
 }: {
   bill: Bill;
   members: Member[];
@@ -30,6 +31,14 @@ export function ReceiptScanner({
   onTotalTouched: () => void;
   /** ยังไม่มีรายการในบิล ปุ่มนี้คือสิ่งที่ควรกดต่อ ทำให้เด่นขึ้น */
   prominent?: boolean;
+/**
+   * เรียกหลังใส่ของที่สแกนได้ลงบิลแล้ว
+   *
+   * หน้าหัวบิลใช้ตัวนี้พาไปหน้ารายการต่อให้เลย จะได้เห็นของที่เพิ่งอ่านมาทันที
+   * ต้องเรียกตอน "หลัง" ใส่ลงบิล ไม่ใช่ตอนเปิดแผ่น เพราะถ้าสลับหน้าตอนเปิด
+   * ตัวที่ถือแผ่นสแกนอยู่จะถูกถอดออกจากหน้าจอ แผ่นก็หายไปทั้งแผ่น
+   */
+  onApplied?: () => void;
 }) {
   const photoIds = bill.photoIds ?? [];
   const [open, setOpen] = useState(false);
@@ -134,6 +143,7 @@ export function ReceiptScanner({
     patch(changes);
     setOpen(false);
     reset();
+    onApplied?.();
   };
 
   /**
