@@ -98,7 +98,24 @@ const SUMMARY: { kind: SummaryKind; words: string[] }[] = [
   { kind: 'subtotal', words: ['ยอดรวมย่อย', 'รวมย่อย', 'subtotal', 'sub total', 'sub-total'] },
   { kind: 'sub', words: ['ยอดรวม', 'รวมเงิน', 'รวม', 'ทั้งหมด', 'total', 'amount', 'gross'] },
 ];
-type SummaryKind = 'net' | 'sub' | 'subtotal' | 'discount' | 'service' | 'vat' | 'payment';
+type SummaryKind =
+  | 'net'
+  | 'sub'
+  | 'subtotal'
+  | 'discount'
+  | 'service'
+  | 'vat'
+  | 'payment'
+  | 'included';
+
+/**
+ * บรรทัดที่บอกว่า "ภาษีรวมอยู่ในยอดแล้ว" ไม่ใช่ยอดที่ต้องบวกหรือยอดของบิล
+ *
+ * ใบเสร็จสิงคโปร์กับมาเลเซียเขียน "TOTAL INCLUDES GST OF 0.35"
+ * ของไทยเขียน "ราคารวมภาษีมูลค่าเพิ่มแล้ว" ถ้าเอาไปนับเป็นยอดรวม
+ * บิล 5.35 จะกลายเป็นบิล 0.35 ถ้าเอาไปบวกก็จะเกินไปอีก ต้องข้ามเฉยๆ
+ */
+const TAX_INCLUDED = /includ|รวมภาษี|ภาษีรวม|รวมvat|already included/i;
 
 export function parseReceipt(lines: ReceiptLine[]): ParsedReceipt {
   const ordered = [...(lines ?? [])]
@@ -402,7 +419,7 @@ function findSubtotalSplit(rows: Row[], nameOf: (row: Row) => string): number | 
   let running = 0;
   let found: number | null = null;
   for (const [index, row] of rows.entries()) {
-    if (index >= 1 && running > 0 && running === row.amount && looksLikeSummary(nameOf(row))) {
+    if (index >= 1 && running > 0 && running === row.amount && looksLikeSummary(nameOf(row), index)) {
       found = index;
     }
     running += row.amount;
@@ -418,9 +435,18 @@ const NAME_IS_PRODUCT = 15;
  * (เจอมาแล้ว: เพียวรีน่าวันสองสูตร ราคา 806.40 เท่ากันเป๊ะ เรียงติดกัน)
  * บรรทัดยอดรวมจะไม่มีชื่อสินค้ายาวๆ อยู่ในคอลัมน์รายการ ใช้ข้อนี้กันไว้
  */
-function looksLikeSummary(name: string): boolean {
+/**
+ * @param leading จำนวนบรรทัดที่อยู่ก่อนหน้าและถูกบวกรวมมาแล้ว
+ *
+ * ชื่อยาวๆ ยอมให้ผ่านได้ถ้ามีบรรทัดนำหน้าตั้งแต่สองบรรทัดขึ้นไป
+ * เพราะการที่ยอดบรรทัดหนึ่งบังเอิญเท่ากับผลบวกของสามบรรทัดขึ้นไปนั้นยากมาก
+ * ที่เคยพลาดคือสินค้าสองตัวราคาเท่ากันเรียงติดกัน ซึ่งมีบรรทัดนำหน้าแค่บรรทัดเดียว
+ * กฎนี้ทำให้ "Eat-In Total (incl GST)" ซึ่งชื่อยาวแต่เป็นยอดรวมจริง ผ่านได้
+ */
+function looksLikeSummary(name: string, leading: number): boolean {
   if (classify(name)) return true;
-  return name.replace(/[^\p{L}]/gu, '').length < NAME_IS_PRODUCT;
+  if (name.replace(/[^\p{L}]/gu, '').length < NAME_IS_PRODUCT) return true;
+  return leading >= 2;
 }
 
 /** ไม่มีจุดตัดให้เห็น ใช้คำขึ้นต้นตัดสินแทน */
@@ -642,6 +668,7 @@ function classify(label: string): SummaryKind | null {
     .trim();
   if (!normalized) return null;
   // คอลัมน์จำนวนชิ้นอยู่ซ้ายสุด เลขจึงหลงมาติดหน้าคำว่า "Subtotal:" ได้
+  if (TAX_INCLUDED.test(normalized)) return 'included';
   const candidates = [
     normalized,
     normalized.replace(/^\d{1,2}\s+/, ''),

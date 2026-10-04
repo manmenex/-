@@ -590,6 +590,62 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     expect(parsed.reconciled).toBe(true);
   });
 
+  /**
+   * ใบเสร็จสิงคโปร์/มาเลเซีย — ภาษีรวมอยู่ในยอดแล้ว ไม่ได้บวกเพิ่ม
+   *
+   * โครงจากใบ McDonald's สิงคโปร์จริง มีสองกับดัก:
+   * "Eat-In Total (incl GST)" คือยอดรวมจริงแต่ชื่อยาวจนเคยถูกนับเป็นสินค้า
+   * ส่วน "TOTAL INCLUDES GST OF 0.35" ขึ้นต้นด้วย total จนเคยถูกนับเป็นยอดของบิล
+   * ซึ่งทำให้บิล 5.35 กลายเป็นบิล 0.35
+   */
+  it('ภาษีที่รวมอยู่ในยอดแล้ว ไม่เอามาเป็นยอดบิลและไม่บวกซ้ำ', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [679, [['QTY ITEM', 260], ['TOTAL', 800]]],
+        [732, [['1', 95], ['Med Ice Lemon Tea', 420], ['2.95', 800]]],
+        [787, [['1', 95], ['Coffee with Milk', 420], ['2.40', 800]]],
+        [901, [['Eat-In Total (incl GST)', 400], ['5.35', 800]]],
+        [960, [['Cash Tendered', 330], ['10.00', 800]]],
+        [1021, [['Change', 240], ['4.65', 800]]],
+        [1144, [['TOTAL INCLUDES GST OF', 400], ['0.35', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.name)).toEqual(['Med Ice Lemon Tea', 'Coffee with Milk']);
+    expect(parsed.total).toBe(B(5.35));
+    expect(parsed.vat).toBeUndefined();
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /** ไม่มีบรรทัดยอดรวมเลย เหลือแต่บรรทัดบอกภาษี — ห้ามเอามาเป็นยอดบิล */
+  it('ยอดภาษีที่รวมอยู่แล้ว ไม่กลายเป็นยอดของบิล', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['Med Ice Lemon Tea', 420], ['2.95', 800]]],
+        [140, [['Coffee with Milk', 420], ['2.40', 800]]],
+        [200, [['Cash Tendered', 330], ['10.00', 800]]],
+        [240, [['Change', 240], ['4.65', 800]]],
+        [300, [['TOTAL INCLUDES GST OF', 400], ['0.35', 800]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.total).not.toBe(B(0.35));
+    expect(parsed.reconciled).toBe(false);
+  });
+
+  it('ยอดรวมที่ชื่อยาว ผ่านได้ถ้ามีรายการนำหน้าหลายตัว', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['ข้าวผัด', 420], ['100.00', 800]]],
+        [140, [['ต้มยำ', 420], ['50.00', 800]]],
+        [180, [['ผัดไทย', 420], ['150.00', 800]]],
+        [240, [['Grand Total Payable Amount', 420], ['300.00', 800]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.total).toBe(B(300));
+    expect(parsed.reconciled).toBe(true);
+  });
+
   /** ตัวเลขชิดขวา ขอบซ้ายจึงไม่ตรงกัน ห้ามแตกเป็นสองคอลัมน์ */
   it('จับเป็นคอลัมน์เดียว แม้ตัวเลขจะยาวไม่เท่ากัน', () => {
     const parsed = parseReceipt(
