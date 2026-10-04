@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   MIN_CONFIDENCE,
+  isReferenceNumber,
   parseReceipt,
+  repairDigits,
   type ReceiptLine,
   type ReceiptWord,
 } from '../receipt';
 import vetReceipt from './fixtures/vet-receipt.json';
 import dayByDayReceipt from './fixtures/daybyday-receipt.json';
+import thongUraiReceipt from './fixtures/thong-urai-receipt.json';
 import { B } from '../../core/__tests__/factories';
 
 /**
@@ -510,6 +513,40 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     expect(parsed.reconciled).toBe(true);
   });
 
+  /** ใบที่ไม่มีหัวตาราง เลขที่บิลเลยไม่มีอะไรกั้น ต้องดูที่ตัวเลขเอง */
+  it('ไม่เอาเลขที่บิลมาเป็นราคา แม้มันจะอยู่ตรงคอลัมน์ราคา', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [60, [['เลขที่', 420], ['10033672', 700]]],
+        [100, [['ข้าวผัด', 420], ['100.00', 700]]],
+        [140, [['ต้มยำ', 420], ['50.00', 700]]],
+        [180, [['ผัดไทย', 420], ['150.00', 700]]],
+        [240, [['รวม', 420], ['300.00', 700]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.total).toBe(B(300));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /** มีหัวตาราง ทุกอย่างเหนือมันคือหัวบิล ไม่ใช่รายการ */
+  it('ตัดเวลาที่อ่านเป็นเงิน ออกด้วยหัวตาราง', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [60, [['เวลา', 420], ['13.13', 700]]],
+        [100, [['สินค้า', 420], ['Qty', 560], ['ราคารวม', 700]]],
+        [140, [['ข้าวผัด', 420], ['1', 560], ['100.00', 700]]],
+        [180, [['ต้มยำ', 420], ['1', 560], ['50.00', 700]]],
+        [220, [['ผัดไทย', 420], ['1', 560], ['150.00', 700]]],
+        [280, [['รวม', 420], ['3', 560], ['300.00', 700]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.items.map((item) => item.lineTotal)).toEqual([B(100), B(50), B(150)]);
+    expect(parsed.total).toBe(B(300));
+    expect(parsed.reconciled).toBe(true);
+  });
+
   /** ตัวเลขชิดขวา ขอบซ้ายจึงไม่ตรงกัน ห้ามแตกเป็นสองคอลัมน์ */
   it('จับเป็นคอลัมน์เดียว แม้ตัวเลขจะยาวไม่เท่ากัน', () => {
     const parsed = parseReceipt(
@@ -523,5 +560,68 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     expect(parsed.items).toHaveLength(3);
     expect(parsed.total).toBe(B(1339));
     expect(parsed.reconciled).toBe(true);
+  });
+});
+
+/**
+ * ใบเสร็จร้าน Thong-Urai (Ocha POS) — ผลจริงจาก tesseract บนรูปที่ผู้ใช้ถ่ายมาเอง
+ *
+ * ของจริง 5 รายการ รวม 450.00 บาท
+ * ใบนี้รวมปัญหาที่เจอบ่อยไว้ครบ: เลขที่บิลอยู่ตรงคอลัมน์ราคาพอดี
+ * เลขศูนย์ท้ายบางตัวอ่านเป็นตัวอักษร ("80.0C" "450.0(")
+ * และมีบรรทัดตัวเลือกย่อยใต้รายการที่ราคา 0.00 คั่นอยู่
+ */
+describe('ใบเสร็จ Thong-Urai (หัวบิลปนคอลัมน์ราคา)', () => {
+  const parsed = parseReceipt(thongUraiReceipt as ReceiptLine[]);
+
+  it('ได้ 5 รายการตามใบจริง และยอดรวมตรงกัน', () => {
+    expect(parsed.items).toHaveLength(5);
+    expect(parsed.total).toBe(B(450));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  it('ไม่เอาเลขที่บิลมาเป็นราคา ทั้งที่มันอยู่ตรงคอลัมน์ราคาพอดี', () => {
+    const totals = parsed.items.map((item) => item.lineTotal);
+    expect(totals).toEqual([B(135), B(80), B(75), B(80), B(80)]);
+    expect(totals.some((value) => value > B(1000))).toBe(false);
+  });
+
+  it('ไม่เอาบรรทัดตัวเลือกย่อยมาเป็นรายการ', () => {
+    const names = parsed.items.map((item) => item.name).join(' | ');
+    expect(names).not.toMatch(/ระดับความหวาน|Iced|Coffee bean/);
+  });
+
+  it('อ่าน Coconut Latte ได้ ทั้งที่ OCR ให้มาเป็น "80.0C"', () => {
+    expect(parsed.items[4].name).toMatch(/Coconut Latte/);
+    expect(parsed.items[4].lineTotal).toBe(B(80));
+  });
+});
+
+describe('ซ่อมตัวอักษรที่ควรเป็นตัวเลข', () => {
+  it('ซ่อมเฉพาะตัวท้ายของจำนวนเงิน', () => {
+    expect(repairDigits('80.0C')).toBe('80.00');
+    expect(repairDigits('450.0(')).toBe('450.00');
+    expect(repairDigits('1,190.0O')).toBe('1,190.00');
+    expect(repairDigits('35.0l')).toBe('35.01');
+  });
+
+  it('ไม่แตะคำที่ปกติดีอยู่แล้ว หรือที่ไม่ใช่เงิน', () => {
+    expect(repairDigits('80.00')).toBe('80.00');
+    expect(repairDigits('Cacao')).toBe('Cacao');
+    expect(repairDigits('12.3x')).toBe('12.3x');
+    expect(repairDigits('(ราคาปกติ)')).toBe('(ราคาปกติ)');
+  });
+});
+
+describe('เลขอ้างอิง', () => {
+  it('เลขยาวไม่มีทศนิยมคือเลขที่บิล ไม่ใช่เงิน', () => {
+    expect(isReferenceNumber('10033672')).toBe(true);
+    expect(isReferenceNumber('0909530888')).toBe(true);
+  });
+
+  it('ราคาที่ OCR ทำทศนิยมหายยังนับเป็นเงิน จะได้ไม่หายเงียบๆ', () => {
+    expect(isReferenceNumber('19800')).toBe(false);
+    expect(isReferenceNumber('450')).toBe(false);
+    expect(isReferenceNumber('1,190.00')).toBe(false);
   });
 });

@@ -145,6 +145,54 @@ const COUNT_MIN_ROWS = 3;
 /** คำที่อยู่ในคอลัมน์เดียวกันต่างกันได้ไม่เกินนี้ (พิกเซล) */
 const COLUMN_TOLERANCE = 45;
 
+/** ตัวอักษรที่ OCR มักสลับกับตัวเลข บนกระดาษความร้อนที่หมึกจาง */
+const DIGIT_LOOKALIKE: Record<string, string> = {
+  O: '0', o: '0', C: '0', c: '0', D: '0', Q: '0', '(': '0', ')': '0', '[': '0', ']': '0',
+  '\u0E50': '0', l: '1', I: '1', '|': '1', '!': '1', '\u0E51': '1',
+};
+
+/**
+ * ซ่อมตัวอักษรที่ควรเป็นตัวเลข เฉพาะตำแหน่งที่รู้แน่ว่าต้องเป็นตัวเลข
+ *
+ * จากใบจริง: "80.00" อ่านมาเป็น "80.0C" และ "450.00" เป็น "450.0("
+ * ตัวสุดท้ายของทศนิยมโดนบ่อยที่สุด เพราะหมึกบนกระดาษความร้อนจางตรงขอบ
+ * ซ่อมเฉพาะตอนที่ส่วนหน้าเป็นรูปแบบเงินชัดเจนอยู่แล้ว จะได้ไม่ไปแตะชื่อสินค้า
+ */
+export function repairDigits(text: string): string {
+  const slip = /^(-?\d[\d,]*\.\d?)([^\d])$/.exec(text);
+  if (!slip) return text;
+  const fixed = DIGIT_LOOKALIKE[slip[2]];
+  return fixed === undefined ? text : slip[1] + fixed;
+}
+
+/**
+ * เลขอ้างอิงยาวๆ ไม่มีทศนิยม = เลขที่บิล เลขโทรศัพท์ ไม่ใช่จำนวนเงิน
+ * ใช้เกณฑ์เดียวกับตอนอ่านสลิปโอน (MAX_WHOLE_DIGITS ใน ocr.ts)
+ * ไม่กล้าลดให้ต่ำกว่านี้ เพราะราคาจริงที่ OCR ทำทศนิยมหาย ("195.00" เป็น "19800")
+ * ก็หน้าตาเหมือนกัน ตัดทิ้งไปจะกลายเป็นรายการหายเงียบๆ
+ */
+const MAX_WHOLE_DIGITS = 7;
+
+export function isReferenceNumber(text: string): boolean {
+  if (text.includes('.')) return false;
+  return text.replace(/\D/g, '').length > MAX_WHOLE_DIGITS;
+}
+
+/**
+ * หัวตารางรายการ เช่น "สินค้า  Qty  ราคารวม"
+ * ทุกอย่างเหนือบรรทัดนี้คือหัวบิล เลขที่บิล เวลา เบอร์โทร ไม่ใช่รายการ
+ * ซึ่งเป็นตัวที่ทำให้ผลรวมสะสมเพี้ยนจนหาจุดตัดรายการไม่เจอ
+ */
+function isTableHeader(text: string): boolean {
+  const lower = text.toLowerCase();
+  const naming = /สินค้า|รายการ|description|item/.test(lower);
+  const measuring = /ราคา|จำนวน|qty|quantity|amount|price|total|unit/.test(lower);
+  return naming && measuring;
+}
+
+/** บรรทัดตัวเลือกย่อยของรายการข้างบน ขึ้นต้นด้วยขีดหรือจุด */
+const MODIFIER_LINE = /^\s*[-\u2013\u2014\u2022*]/;
+
 /**
  * หาคอลัมน์ยอดเงิน = กลุ่มตัวเลขที่อยู่ขวาสุดและเรียงตรงกันหลายบรรทัด
  * ต้องมีอย่างน้อยสองบรรทัดถึงจะนับเป็นคอลัมน์ ตัวเลขโดดๆ ตัวเดียวไม่ใช่
@@ -192,8 +240,10 @@ function clusterPositions(spots: number[]): { center: number; count: number }[] 
 function amountIn(line: ReceiptLine, column: number): Money | null {
   for (const word of line.words ?? []) {
     if (Math.abs(word.x1 - column) > COLUMN_TOLERANCE) continue;
-    if (!AMOUNT_WORD.test(word.text)) continue;
-    const value = parseBaht(word.text);
+    const text = repairDigits(word.text);
+    if (!AMOUNT_WORD.test(text)) continue;
+    if (isReferenceNumber(text)) continue;
+    const value = parseBaht(text);
     if (value !== null && value !== 0) return value;
   }
   return null;
@@ -261,10 +311,18 @@ interface Row {
 }
 
 function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
+  // ตัดหัวบิลทิ้งถ้าหาหัวตารางเจอ ไม่เจอก็ใช้ทั้งใบเหมือนเดิม
+  const headerAt = lines.findIndex((line) => isTableHeader(collapse(line.text)));
+  const body = headerAt >= 0 ? lines.slice(headerAt + 1) : lines;
+
   const rows: Row[] = [];
-  for (const line of lines) {
+  for (const line of body) {
     const amount = amountIn(line, columns.amount);
     if (amount === null) continue;
+    // "- ระดับความหวาน: หวานน้อย 50%" เป็นตัวเลือกของรายการข้างบน ไม่ใช่รายการใหม่
+    // ต้องตัดก่อนนับผลรวมสะสม ไม่งั้นยอดที่ OCR อ่านเพี้ยนจะทำให้หาจุดตัดไม่เจอ
+    const label = nameFrom(line, columns);
+    if (MODIFIER_LINE.test(label) && classify(label) === null) continue;
     rows.push({
       line,
       amount,
@@ -575,7 +633,12 @@ function classify(label: string): SummaryKind | null {
     .trim();
   if (!normalized) return null;
   // คอลัมน์จำนวนชิ้นอยู่ซ้ายสุด เลขจึงหลงมาติดหน้าคำว่า "Subtotal:" ได้
-  const candidates = [normalized, normalized.replace(/^\d{1,2}\s+/, '')];
+  const candidates = [
+    normalized,
+    normalized.replace(/^\d{1,2}\s+/, ''),
+    // ใบเสร็จบางเจ้าขึ้นต้นบรรทัดส่วนลดด้วยขีด ต้องยังจับได้
+    normalized.replace(/^[-\u2013\u2014\u2022*]\s*/, ''),
+  ];
   for (const { kind, words } of SUMMARY) {
     for (const word of words) {
       if (candidates.some((text) => text.startsWith(word.toLowerCase()))) return kind;
