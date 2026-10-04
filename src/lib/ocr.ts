@@ -263,8 +263,18 @@ function convincing(parsed: ParsedReceipt): boolean {
  * จึงนับให้เฉพาะตอนมีรายการมากพอ แล้วใช้จำนวนรายการเป็นตัวตัดสินรองลงมา
  */
 export function scoreParse(parsed: ParsedReceipt): number {
-  const reconciled = parsed.reconciled && parsed.items.length >= ENOUGH_ITEMS ? 1000 : 0;
-  return reconciled + Math.min(parsed.items.length, 30) * 10 + parsed.confidence / 10;
+  /**
+   * รายการที่ "ชื่อเป็นตัวเลขล้วน" ไม่นับว่าอ่านได้
+   *
+   * บางโหมดแบ่งหน้าแยกชื่อกับราคาไปคนละบรรทัด ผลที่ได้จึงเหลือแต่ตัวเลข
+   * ซึ่งบวกกันลงตัวง่ายมากเพราะไม่มีบรรทัดสรุปให้ขัด แล้วได้ "ตรงกัน" แบบปลอมๆ
+   * วัดจากใบจริงสองใบ: โหมดที่ชื่อครบให้ยอด 7.55 กับ 179.94 ซึ่งถูก
+   * ส่วนโหมดที่ชื่อเป็นตัวเลขให้ 6.00 กับ 167.00 แล้วบอกว่าตรงกัน
+   */
+  const named = parsed.items.filter((item) => /\p{L}{2}/u.test(item.name)).length;
+  const readable = parsed.items.length === 0 ? 0 : named / parsed.items.length;
+  const trusted = parsed.reconciled && parsed.items.length >= ENOUGH_ITEMS && readable >= 0.5;
+  return (trusted ? 1000 : 0) + Math.min(named, 30) * 10 + parsed.confidence / 10;
 }
 
 /** กรอบครอบตัดเป็นพิกเซล พร้อมบอกว่ามันคือทั้งรูปหรือเปล่า */

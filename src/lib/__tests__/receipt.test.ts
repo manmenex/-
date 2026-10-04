@@ -312,9 +312,17 @@ describe('ความมั่นใจของ OCR', () => {
 describe('ใบเสร็จ Day by Day (คอลัมน์จำนวนอยู่ซ้าย)', () => {
   const parsed = parseReceipt(dayByDayReceipt as ReceiptLine[]);
 
-  it('ได้รายการครบ 11 รายการ ไม่เอาบรรทัด Subtotal มาเป็นรายการ', () => {
-    expect(parsed.items).toHaveLength(11);
+  /**
+   * ได้ 10 จาก 11 รายการ บรรทัดแรก OCR อ่าน "195.00" เป็น "19800" ทศนิยมหายไป
+   * ทั้งใบพิมพ์ทศนิยมครบทุกบรรทัด ตัวที่ไม่มีจึงถูกคัดออกว่าไม่ใช่เงิน
+   * กฎเดียวกันนี้คือตัวที่กันรหัสไปรษณีย์ ("CA 90210") และวันที่ ("JANUARY 30,2018")
+   * ไม่ให้กลายเป็นรายการราคาเก้าหมื่น ซึ่งเจอบนใบจริงมากกว่า
+   * ยังไงบรรทัดนี้ก็ผิดอยู่แล้ว ทิ้งไปพร้อมขึ้นเตือนดีกว่าโชว์ 19,800 บาท
+   */
+  it('ได้ 10 รายการ ตัดบรรทัดที่ทศนิยมหายทิ้ง และไม่เอา Subtotal มาเป็นรายการ', () => {
+    expect(parsed.items).toHaveLength(10);
     expect(parsed.items.map((item) => item.name)).not.toContain('Subtotal;');
+    expect(parsed.items.map((item) => item.lineTotal)).not.toContain(1980000);
   });
 
   it('อ่านยอดบนใบเสร็จได้ ทั้งที่ OCR อ่าน "Subtotal:" เป็น "Subtotal;"', () => {
@@ -322,7 +330,7 @@ describe('ใบเสร็จ Day by Day (คอลัมน์จำนวน
   });
 
   it('อ่านจำนวนชิ้นจากคอลัมน์ซ้าย แล้วหารราคาต่อชิ้นให้เอง', () => {
-    const matcha = parsed.items[1];
+    const matcha = parsed.items[0];
     expect(matcha.name).toBe('Matcha');
     expect(matcha.quantity).toBe(3);
     expect(matcha.unitPrice).toBe(B(65));
@@ -643,6 +651,78 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     );
     expect(parsed.items).toHaveLength(3);
     expect(parsed.total).toBe(B(300));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /**
+   * ใบฝรั่งที่มีทั้ง "Sub Total" และ "TOTAL" — ตัวหลังคือยอดสุทธิ ไม่ใช่ยอดรวมย่อยซ้ำ
+   * ของเดิมเขียนลงตัวแปรเดียวกัน ตัวหลังหายไป แล้วรายงานยอดก่อนภาษีเป็นยอดบิล
+   * พร้อมบอกว่า "ตรงกัน" เพราะรายการบวกกันได้เท่ายอดรวมย่อยพอดี
+   */
+  it('มีทั้ง Sub Total และ Total ต้องเอา Total เป็นยอดสุทธิ', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['CUP CHOWDER', 400], ['6.00', 800]]],
+        [140, [['SIDE SALAD', 400], ['4.00', 800]]],
+        [180, [['ICED TEA', 400], ['3.00', 800]]],
+        [240, [['Sub Total:', 400], ['13.00', 800]]],
+        [280, [['Tax:', 400], ['0.87', 800]]],
+        [320, [['GRAT 18', 400], ['2.34', 800]]],
+        [360, [['TOTAL:', 400], ['16.21', 800]]],
+        [400, [['Cash', 400], ['20.00', 800]]],
+        [440, [['Change', 400], ['3.79', 800]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.serviceCharge).toBe(B(2.34));
+    expect(parsed.total).toBe(B(16.21));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /** ขยะ OCR นำหน้าบรรทัดสรุป เป็นเรื่องปกติบนใบจริง */
+  it('จับบรรทัดสรุปได้ แม้ OCR จะแถมขยะไว้ข้างหน้า', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['Shrimp Scampi', 400], ['27.00', 800]]],
+        [140, [['Veal Milanese', 400], ['27.00', 800]]],
+        [180, [['Grey Goose', 400], ['30.00', 800]]],
+        [240, [['ว Subtotal', 400], ['84.00', 800]]],
+        [280, [['| Sales Tax', 400], ['7.00', 800]]],
+        [320, [['(oN Balance Due', 400], ['91.00', 800]]],
+        [360, [['Cash', 400], ['100.00', 800]]],
+        [400, [['Change', 400], ['9.00', 800]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.vat).toBe(B(7));
+    expect(parsed.total).toBe(B(91));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /** รหัสไปรษณีย์กับวันที่บนหัวบิล ไปตรงคอลัมน์ราคาพอดีได้ */
+  it('ไม่เอารหัสไปรษณีย์กับวันที่มาเป็นราคา', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [60, [['Beverly Hills, CA', 400], ['90210', 800]]],
+        [90, [['TUE JANUARY', 400], ['30,2018', 800]]],
+        [140, [['ICED TEA', 400], ['4.50', 800]]],
+        [170, [['ROMBO CARCIOFI', 400], ['48.00', 800]]],
+        [200, [['SPARKLING WATER', 400], ['8.50', 800]]],
+        [230, [['BRANZINO', 400], ['40.00', 800]]],
+        [260, [['CARPACCIO', 400], ['33.00', 800]]],
+        [310, [['SUB-TOTAL', 400], ['134.00', 800]]],
+        [340, [['TAX', 400], ['12.73', 800]]],
+        [370, [['TOTAL', 400], ['146.73', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.lineTotal)).toEqual([
+      B(4.5),
+      B(48),
+      B(8.5),
+      B(40),
+      B(33),
+    ]);
+    expect(parsed.total).toBe(B(146.73));
     expect(parsed.reconciled).toBe(true);
   });
 

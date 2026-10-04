@@ -103,7 +103,7 @@ describe('extractAmounts', () => {
 describe('scoreParse', () => {
   const parse = (items: number, reconciled: boolean, confidence: number) => ({
     items: Array.from({ length: items }, () => ({
-      name: 'x',
+      name: 'ข้าวผัด',
       quantity: 1,
       unitPrice: 100,
       lineTotal: 100,
@@ -150,6 +150,40 @@ describe('scoreParse', () => {
 
   it('เท่ากันทุกอย่าง ตัดสินด้วยความมั่นใจของตัวอ่าน', () => {
     expect(scoreParse(parse(6, true, 90))).toBeGreaterThan(scoreParse(parse(6, true, 70)));
+  });
+
+  /**
+   * บางโหมดแบ่งหน้าแยกชื่อกับราคาไปคนละบรรทัด เหลือแต่ตัวเลขเป็นชื่อรายการ
+   * ผลแบบนั้นบวกกันลงตัวง่ายมากเพราะไม่มีบรรทัดสรุปให้ขัด แล้วได้ "ตรงกัน" แบบปลอม
+   * วัดจากใบจริง: โหมดที่ชื่อครบให้ยอด 179.94 ซึ่งถูก ส่วนโหมดที่ชื่อเป็นตัวเลขให้ 167.00
+   */
+  it('ไม่เชื่อผลที่ชื่อรายการเป็นตัวเลขล้วน แม้จะบอกว่ายอดตรง', () => {
+    const numeric = {
+      items: Array.from({ length: 8 }, () => ({
+        name: '7.00',
+        quantity: 1,
+        unitPrice: 700,
+        lineTotal: 700,
+      })),
+      reconciled: true,
+      confidence: 92,
+    };
+    expect(scoreParse(parse(8, true, 59))).toBeGreaterThan(scoreParse(numeric));
+  });
+
+  /** อ่านชื่อได้ไม่ถึงครึ่ง ก็ยังเชื่อ "ยอดตรงกัน" ไม่ได้ แม้จะได้รายการเยอะกว่า */
+  it('ยอดตรงกันไม่นับ ถ้าอ่านชื่อได้ไม่ถึงครึ่งของรายการ', () => {
+    const half = {
+      items: Array.from({ length: 10 }, (_, index) => ({
+        name: index < 4 ? 'ข้าวผัด' : '7.00',
+        quantity: 1,
+        unitPrice: 700,
+        lineTotal: 700,
+      })),
+      reconciled: true,
+      confidence: 90,
+    };
+    expect(scoreParse(parse(6, false, 90))).toBeGreaterThan(scoreParse(half));
   });
 
   it('รายการน้อยเกินไป ไม่นับว่ายอดตรงกัน', () => {

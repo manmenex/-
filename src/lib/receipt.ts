@@ -89,14 +89,49 @@ const FOOTER_HINTS = /ขอบคุณ|โปรดเก็บ|thank|please k
 /** หน่วยนับท้ายชื่อรายการ ตัดทิ้งได้ */
 const TRAILING_UNIT = /\s+(pc|pcs|bg|pk|ea|set|box|kg|g|ชิ้น|ขวด|กล่อง|แพ็ค|ถุง|อัน)\.?$/i;
 
-const SUMMARY: { kind: SummaryKind; words: string[] }[] = [
-  { kind: 'net', words: ['ยอดสุทธิ', 'รวมสุทธิ', 'รวมเงินสุทธิ', 'สุทธิ', 'รวมทั้งสิ้น', 'grand total', 'net total', 'net amount'] },
+/**
+ * `words` เทียบแบบขึ้นต้น ส่วน `suffix` เทียบแบบลงท้าย (ต้องเป็นคำเต็ม)
+ *
+ * ไม่เทียบท้ายคำกับทุกคำ เพราะจะไปโดนของที่ไม่ควรโดน
+ * เช่น "Eat-In Total (incl GST)" ซึ่งเป็นยอดรวม ไม่ใช่บรรทัดภาษี
+ * ใส่เฉพาะที่เจอบนใบจริงแล้วจำเป็นจริงๆ
+ */
+const SUMMARY: { kind: SummaryKind; words: string[]; suffix?: string[]; anywhere?: string[] }[] = [
+  {
+    kind: 'net',
+    words: [
+      'ยอดสุทธิ', 'รวมสุทธิ', 'รวมเงินสุทธิ', 'สุทธิ', 'รวมทั้งสิ้น',
+      'grand total', 'net total', 'net amount', 'balance due', 'amount due', 'total due',
+    ],
+    anywhere: ['balance due', 'amount due', 'total due', 'grand total', 'net total'],
+  },
   { kind: 'discount', words: ['ส่วนลด', 'ลดราคา', 'discount'] },
-  { kind: 'service', words: ['ค่าบริการ', 'เซอร์วิส', 'service charge', 'service', 'svc'] },
-  { kind: 'vat', words: ['vat', 'ภาษีมูลค่าเพิ่ม', 'ภาษี', 'tax'] },
-  { kind: 'payment', words: ['เงินสด', 'เงินทอน', 'ทอน', 'รับเงิน', 'บัตร', 'พร้อมเพย์', 'โอน', 'cash', 'change', 'card', 'qr'] },
-  { kind: 'subtotal', words: ['ยอดรวมย่อย', 'รวมย่อย', 'subtotal', 'sub total', 'sub-total'] },
-  { kind: 'sub', words: ['ยอดรวม', 'รวมเงิน', 'รวม', 'ทั้งหมด', 'total', 'amount', 'gross'] },
+  {
+    kind: 'service',
+    words: ['ค่าบริการ', 'เซอร์วิส', 'ค่าทิป', 'service charge', 'service', 'svc', 'gratuity', 'grat'],
+    anywhere: ['service charge', 'gratuity'],
+  },
+  // "Sales Tax" "Sale Tax" ไม่ได้ขึ้นต้นด้วย tax
+  { kind: 'vat', words: ['vat', 'ภาษีมูลค่าเพิ่ม', 'ภาษี', 'tax', 'gst'], suffix: ['tax'], anywhere: ['sales tax'] },
+  {
+    kind: 'payment',
+    words: [
+      'เงินสด', 'เงินทอน', 'ทอน', 'รับเงิน', 'บัตร', 'พร้อมเพย์', 'โอน',
+      'cash', 'change', 'card', 'qr', 'tendered', 'visa', 'mastercard', 'debit', 'credit',
+    ],
+    // "Amount Tendered" ขึ้นต้นด้วย amount ซึ่งไปตรงกับยอดรวม ต้องจับที่ท้ายคำ
+    suffix: ['tendered'],
+  },
+  {
+    kind: 'subtotal',
+    words: ['ยอดรวมย่อย', 'รวมย่อย', 'subtotal', 'sub total', 'sub-total', 'taxable'],
+    anywhere: ['subtotal', 'sub total', 'sub-total'],
+  },
+  {
+    kind: 'sub',
+    words: ['ยอดรวม', 'รวมเงิน', 'รวม', 'ทั้งหมด', 'total', 'amount', 'gross'],
+    anywhere: ['total'],
+  },
 ];
 type SummaryKind =
   | 'net'
@@ -254,14 +289,14 @@ function clusterPositions(spots: number[]): { center: number; count: number }[] 
   return clusters.map(({ sum: total, count }) => ({ center: total / count, count }));
 }
 
-function amountIn(line: ReceiptLine, column: number): Money | null {
+function amountIn(line: ReceiptLine, column: number): { value: Money; decimals: boolean } | null {
   for (const word of line.words ?? []) {
     if (Math.abs(word.x1 - column) > COLUMN_TOLERANCE) continue;
     const text = repairDigits(word.text);
     if (!AMOUNT_WORD.test(text)) continue;
     if (isReferenceNumber(text)) continue;
     const value = parseBaht(text);
-    if (value !== null && value !== 0) return value;
+    if (value !== null && value !== 0) return { value, decimals: text.includes('.') };
   }
   return null;
 }
@@ -325,6 +360,25 @@ interface Row {
   line: ReceiptLine;
   amount: Money;
   unitPrice: Money | null;
+  /** ตัวเลขที่อ่านมามีจุดทศนิยมหรือเปล่า ใช้คัดเลขที่ไม่ใช่เงินออก */
+  decimals: boolean;
+}
+
+/** ยอดในคอลัมน์มีทศนิยมมากกว่าสัดส่วนนี้ ถือว่าใบนี้พิมพ์ทศนิยมเสมอ */
+const DECIMAL_CONSISTENCY = 0.7;
+
+/**
+ * คัดแถวที่ตัวเลขไม่มีทศนิยมออก เมื่อทั้งใบพิมพ์ทศนิยมเสมอ
+ *
+ * ของจริงที่เจอ: "Beverly Hills, CA 90210" กลายเป็นรายการราคา 90,210
+ * และ "TUE JANUARY 30,2018" กลายเป็น 302,018 เพราะมันไปตรงคอลัมน์ราคาพอดี
+ * รหัสไปรษณีย์กับวันที่ไม่มีทศนิยม ส่วนราคาบนใบเดียวกันมีครบทุกบรรทัด
+ */
+function dropOddAmounts(rows: Row[]): Row[] {
+  if (rows.length === 0) return rows;
+  const withDecimals = rows.filter((row) => row.decimals).length;
+  if (withDecimals / rows.length < DECIMAL_CONSISTENCY) return rows;
+  return rows.filter((row) => row.decimals);
 }
 
 function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
@@ -332,22 +386,26 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
   const headerAt = lines.findIndex((line) => isTableHeader(collapse(line.text)));
   const body = headerAt >= 0 ? lines.slice(headerAt + 1) : lines;
 
-  const rows: Row[] = [];
+  const found: Row[] = [];
   for (const line of body) {
-    const amount = amountIn(line, columns.amount);
-    if (amount === null) continue;
+    const cell = amountIn(line, columns.amount);
+    if (cell === null) continue;
+    const amount = cell.value;
     // "- ระดับความหวาน: หวานน้อย 50%" เป็นตัวเลือกของรายการข้างบน ไม่ใช่รายการใหม่
     // ต้องตัดก่อนนับผลรวมสะสม ไม่งั้นยอดที่ OCR อ่านเพี้ยนจะทำให้หาจุดตัดไม่เจอ
     const label = nameFrom(line, columns);
     if (MODIFIER_LINE.test(label) && classify(label) === null) continue;
-    rows.push({
+    found.push({
       line,
       amount,
-      unitPrice: columns.unitPrice === undefined ? null : amountIn(line, columns.unitPrice),
+      decimals: cell.decimals,
+      unitPrice:
+        columns.unitPrice === undefined ? null : (amountIn(line, columns.unitPrice)?.value ?? null),
     });
   }
 
   const result: ParsedReceipt = { items: [], reconciled: false, confidence: 0 };
+  const rows = dropOddAmounts(found);
   if (rows.length === 0) return result;
 
   // ต้องรู้ก่อนว่าคอลัมน์จำนวนอยู่ตรงไหน ชื่อรายการจะได้ไม่เอาเลขจำนวนไปด้วย
@@ -379,7 +437,20 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
     }
     if (kind === 'net') netTotal = value;
     else if (kind === 'subtotal') subtotal ??= value;
-    else if (kind === 'sub') subtotal ??= value;
+    else if (kind === 'sub') {
+      /**
+       * มีทั้ง "Sub Total" และ "Total" บนใบเดียวกัน ตัวหลังคือยอดสุทธิ ไม่ใช่ยอดรวมย่อยซ้ำ
+       * ของเดิมเขียนลงตัวแปรเดียวกัน ตัวหลังเลยหายไป แล้วรายงานยอดก่อนภาษีเป็นยอดบิล
+       * พร้อมบอกว่า "ตรงกัน" เพราะรายการบวกกันได้เท่ายอดรวมย่อยพอดี
+       *
+       * รับเฉพาะตอนที่ยอดมากกว่าแต่ไม่เกินสองเท่า ภาษีกับค่าบริการรวมกัน
+       * ไม่เคยเกินตัวบิล ถ้าเกินแปลว่า OCR อ่านตัวเลขเพี้ยน (เจอมาแล้ว: ฿450 เป็น 8450)
+       */
+      if (subtotal === undefined) subtotal = value;
+      else if (netTotal === undefined && value > subtotal && value <= subtotal * 2) {
+        netTotal = value;
+      }
+    }
     else if (kind === 'discount') result.discount ??= value;
     else if (kind === 'service') result.serviceCharge ??= value;
     else if (kind === 'vat') result.vat ??= value;
@@ -399,11 +470,31 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
   const biggest = Math.max(...rows.map((row) => Math.abs(row.amount)));
   result.total = netTotal ?? (expected === biggest ? expected : (subtotal ?? undefined));
 
+  /**
+   * บนใบมีบรรทัดที่อ่านชื่อออกแต่บอกไม่ได้ว่าคืออะไร และยอดใหญ่กว่าทุกยอดที่คิดได้
+   * แปลว่าอ่านตกบรรทัดสำคัญไปแล้ว จะบอกว่า "ตรงกัน" ไม่ได้
+   *
+   * วัดจากใบจริง: ใบที่มี "Balance Due 179.94" กับ "GRAT 18" ให้ยอด 167.00
+   * แล้วบอกว่าตรงกัน เพราะรายการบวกกันได้เท่ายอดรวมย่อยพอดี — ผิดแบบเงียบที่สุด
+   *
+   * นับเฉพาะบรรทัดที่มีชื่อกำกับ บรรทัดที่เหลือแต่ตัวเลขลอยๆ ไม่นับ
+   * เพราะมันคือเศษที่ OCR อ่านมามั่ว ไม่ใช่บรรทัดที่เราอ่านตก
+   * และเทียบกับทั้งยอดรวมย่อยและยอดสุทธิ เพราะบิลที่มีส่วนลด
+   * ยอดรวมย่อมมากกว่ายอดสุทธิเป็นปกติ
+   */
+  const accounted = Math.max(result.total ?? 0, subtotal ?? 0);
+  const missed = restRows.some((row) => {
+    const label = nameFrom(row.line, withCount).replace(/[^\p{L}]/gu, '');
+    return label.length >= 3 && classify(nameFrom(row.line, withCount)) === null &&
+      Math.abs(row.amount) > accounted;
+  });
+
   result.reconciled =
     result.items.length > 0 &&
     itemsTotal === (subtotal ?? itemsTotal) &&
     result.total !== undefined &&
-    expected === result.total;
+    expected === result.total &&
+    !missed;
 
   return result;
 }
@@ -675,12 +766,49 @@ function classify(label: string): SummaryKind | null {
     // ใบเสร็จบางเจ้าขึ้นต้นบรรทัดส่วนลดด้วยขีด ต้องยังจับได้
     normalized.replace(/^[-\u2013\u2014\u2022*]\s*/, ''),
   ];
-  for (const { kind, words } of SUMMARY) {
+  for (const { kind, words, suffix, anywhere } of SUMMARY) {
     for (const word of words) {
       if (candidates.some((text) => text.startsWith(word.toLowerCase()))) return kind;
     }
+    for (const word of suffix ?? []) {
+      if (candidates.some((text) => endsWithWord(text, word.toLowerCase()))) return kind;
+    }
+    for (const word of anywhere ?? []) {
+      if (candidates.some((text) => hasWord(text, word.toLowerCase()))) return kind;
+    }
   }
   return null;
+}
+
+/**
+ * มีคำนี้อยู่ในข้อความแบบเป็นคำเต็ม
+ *
+ * ใช้กับคำอังกฤษเท่านั้น เพราะ OCR ชอบแถมขยะไว้หน้าบรรทัดสรุป
+ * ของจริงที่เจอ: "ว Subtotal $51.25" กับ "(oN Balance Due 179.94"
+ * ถ้าดูแค่คำขึ้นต้นจะจับไม่ได้เลย แล้วยอดภาษีกับยอดสุทธิจะหายไปทั้งบรรทัด
+ *
+ * ไทยใช้ไม่ได้เพราะไม่มีช่องว่างคั่นคำ สินค้าชื่อ "ซีฟู้ดรวม" จะกลายเป็นยอดรวมทันที
+ * คำไทยจึงยังเทียบแบบขึ้นต้นอย่างเดียวเหมือนเดิม
+ */
+function hasWord(text: string, word: string): boolean {
+  const at = text.indexOf(word);
+  if (at < 0) return false;
+  const before = at === 0 || text[at - 1] === ' ';
+  const afterAt = at + word.length;
+  const after = afterAt >= text.length || text[afterAt] === ' ';
+  return before && after;
+}
+
+/**
+ * ข้อความจบด้วยคำนี้ โดยต้องเป็นคำเต็ม ไม่ใช่ท้ายคำอื่น
+ *
+ * ถ้าเทียบแค่ "ลงท้ายด้วย" เฉยๆ สินค้าชื่อ "Chicken Strip" จะไปตรงกับ "tip"
+ * จึงบังคับว่าต้องมีช่องว่างคั่นหน้าคำนั้น
+ */
+function endsWithWord(text: string, word: string): boolean {
+  if (!text.endsWith(word)) return false;
+  const before = text.length - word.length - 1;
+  return before < 0 || text[before] === ' ';
 }
 
 function findShopName(lines: ReceiptLine[]): string | undefined {
