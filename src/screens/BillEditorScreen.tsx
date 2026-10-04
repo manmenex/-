@@ -206,6 +206,7 @@ export function BillEditorScreen() {
             bill={bill}
             patch={patch}
             members={members}
+            multiPayer={multiPayer}
             onTotalTouched={() => setTotalTouched(true)}
           />
         )}
@@ -254,9 +255,17 @@ export function BillEditorScreen() {
             )}
         </span>
         {step < 6 ? (
-          <button type="button" className="btn-primary min-w-[9rem]" onClick={goNext}>
-            ต่อไป
-          </button>
+          <>
+            {/* บิลครบเงื่อนไขแล้วก็ไม่ต้องเดินผ่านหน้าที่เหลือ ข้ามมาบันทึกได้เลย */}
+            {validation.canSave && (
+              <button type="button" className="btn-quiet" onClick={save}>
+                บันทึกเลย
+              </button>
+            )}
+            <button type="button" className="btn-primary min-w-[7rem]" onClick={goNext}>
+              ต่อไป
+            </button>
+          </>
         ) : (
           <button
             type="button"
@@ -534,11 +543,13 @@ function StepItems({
   bill,
   patch,
   members,
+  multiPayer,
   onTotalTouched,
 }: {
   bill: Bill;
   patch: (changes: Partial<Bill>) => void;
   members: Member[];
+  multiPayer: boolean;
   onTotalTouched: () => void;
 }) {
   const [name, setName] = useState('');
@@ -552,6 +563,7 @@ function StepItems({
    */
   const [priceMode, setPriceMode] = useState<'total' | 'unit'>('total');
   const nameRef = useRef<HTMLInputElement>(null);
+  const priceRef = useRef<HTMLInputElement>(null);
 
   // แก้รายการที่เพิ่มไปแล้วได้ในที่เดิม ไม่ต้องลบทิ้งแล้วพิมพ์ใหม่ทั้งบรรทัด
   const updateItem = (itemId: string, changes: Partial<LineItem>) => {
@@ -596,17 +608,28 @@ function StepItems({
           placeholder="ชื่อรายการ"
           autoFocus
           {...noAutofill}
+          enterKeyHint="next"
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') add();
+            // Enter ที่ช่องชื่อเด้งไปช่องราคา ไม่ใช่เพิ่มรายการทันที
+            // (ของเดิมเพิ่มเลย ทั้งที่ยังไม่ได้ใส่ราคา กดแล้วไม่เกิดอะไรขึ้น)
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              priceRef.current?.focus();
+            }
           }}
         />
         {/* จำนวนมาก่อนราคา เพราะต้องรู้จำนวนก่อนถึงจะตีความราคาที่กรอกได้ */}
         <div className="w-16">
-          <QuantityInput value={quantity} onChange={setQuantity} />
+          <QuantityInput
+            value={quantity}
+            onChange={setQuantity}
+            onEnter={() => priceRef.current?.focus()}
+          />
         </div>
         <div className="w-24">
           <MoneyInput
+            ref={priceRef}
             value={price}
             currency={bill.currency}
             onChange={setPrice}
@@ -655,6 +678,10 @@ function StepItems({
             </p>
           )}
         </div>
+      )}
+
+      {bill.items.length > 0 && !multiPayer && (
+        <QuickPayer bill={bill} patch={patch} members={members} />
       )}
 
       {(bill.photoIds?.length ?? 0) > 0 && (
@@ -744,6 +771,56 @@ function StepItems({
           <li className="pt-1 text-2xs text-ink-faint">แตะที่รายการเพื่อแก้ชื่อ ราคา หรือจำนวน</li>
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * เลือกคนจ่ายตั้งแต่หน้ารายการ
+ *
+ * วัดการใช้งานจริงแล้วพบว่าบิลธรรมดาหนึ่งใบต้องแตะ 12 ครั้ง และ 5 ครั้งในนั้น
+ * คือปุ่ม "ต่อไป" ล้วนๆ สามครั้งเป็นการเดินผ่านหน้าที่ไม่ได้แก้อะไรเลย
+ * พอเลือกคนจ่ายได้ตรงนี้ บิลก็ครบเงื่อนไขบันทึกตั้งแต่หน้านี้ ปุ่ม "บันทึกเลย" จึงโผล่
+ *
+ * หน้า "ใครจ่าย" เดิมยังอยู่ครบสำหรับเคสจ่ายหลายคน ตรงนี้เป็นทางลัดของเคสที่พบบ่อยสุด
+ */
+function QuickPayer({
+  bill,
+  patch,
+  members,
+}: {
+  bill: Bill;
+  patch: (changes: Partial<Bill>) => void;
+  members: Member[];
+}) {
+  const current = bill.payers.length === 1 ? bill.payers[0].memberId : null;
+
+  return (
+    <div className="rule-solid mt-5 pt-4">
+      <p className="text-2xs uppercase tracking-wide text-ink-soft">ใครออกเงินให้ร้าน</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {members.map((member) => {
+          const active = current === member.id;
+          return (
+            <button
+              key={member.id}
+              type="button"
+              aria-pressed={active}
+              className={`tap flex items-center gap-1.5 border px-2.5 text-[13px] ${
+                active ? 'border-ink bg-ink text-paper' : 'border-rule text-ink-soft'
+              }`}
+              onClick={() =>
+                patch({
+                  payers: active ? [] : [{ memberId: member.id, amount: bill.statedTotal }],
+                })
+              }
+            >
+              <Avatar member={member} size={20} dimmed={!active} />
+              {member.name}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

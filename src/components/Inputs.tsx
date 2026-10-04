@@ -120,17 +120,17 @@ export function TextField({
  * เลขที่พิมพ์ใหม่จะไปต่อท้าย/ต่อหน้าแทนที่จะแทนที่ — แก้เลขไม่ได้เลย
  * ค่าจะถูกปรับให้อย่างน้อย 1 ตอนออกจากช่องเท่านั้น
  */
-export function QuantityInput({
-  value,
-  onChange,
-  ariaLabel = 'จำนวน',
-  className = '',
-}: {
-  value: number;
-  onChange: (value: number) => void;
-  ariaLabel?: string;
-  className?: string;
-}) {
+export const QuantityInput = forwardRef<
+  HTMLInputElement,
+  {
+    value: number;
+    onChange: (value: number) => void;
+    ariaLabel?: string;
+    className?: string;
+    /** กด Enter แล้วไปต่อ ไม่ต้องยกมือไปแตะช่องถัดไป */
+    onEnter?: () => void;
+  }
+>(function QuantityInput({ value, onChange, ariaLabel = 'จำนวน', className = '', onEnter }, ref) {
   const [text, setText] = useState(String(value));
   const lastEmitted = useRef(value);
 
@@ -143,9 +143,10 @@ export function QuantityInput({
 
   return (
     <input
+      ref={ref}
       type="text"
       inputMode="numeric"
-      enterKeyHint="done"
+      enterKeyHint="next"
       aria-label={ariaLabel}
       className={`field tnum text-right ${className}`}
       value={text}
@@ -161,6 +162,13 @@ export function QuantityInput({
           onChange(parsed);
         }
       }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' && onEnter) {
+          event.preventDefault();
+          event.currentTarget.blur();
+          onEnter();
+        }
+      }}
       onBlur={() => {
         const parsed = Number(text);
         const final = text === '' || parsed < 1 ? 1 : parsed;
@@ -170,7 +178,7 @@ export function QuantityInput({
       }}
     />
   );
-}
+});
 
 export function Stepper({
   value,
