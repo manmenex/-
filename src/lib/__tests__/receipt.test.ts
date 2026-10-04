@@ -797,6 +797,66 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     expect(parsed.items.map((item) => item.lineTotal)).toEqual([B(100), B(50), B(120)]);
   });
 
+  /**
+   * ใบฝรั่งพิมพ์สัญลักษณ์สกุลเงินติดกับตัวเลขเป็นก้อนเดียว
+   * ของเดิมอ่านไม่ออกเลย บรรทัด "AMOUNT DUE: $21.69" จึงหายไปทั้งบรรทัด
+   * แล้วรายงานยอดก่อนภาษีเป็นยอดบิล พร้อมบอกว่าตรงกัน
+   */
+  it('อ่านยอดที่มีสัญลักษณ์สกุลเงินติดหน้าได้', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['1/2 AND 1/2 COMBO', 420], ['$8.45', 800], ['N', 860]]],
+        [140, [['1/2 AND 1/2 COMBO', 420], ['$7.95', 800], ['N', 860]]],
+        [180, [['FOUNTAIN MEDIUM', 420], ['$3.50', 800], ['N', 860]]],
+        [240, [['Food Subtotal:', 420], ['$19.90', 800], ['N', 860]]],
+        [280, [['Tax 1:', 420], ['$1.79', 800], ['N', 860]]],
+        [320, [['AMOUNT DUE:', 420], ['$21.69', 800], ['N', 860]]],
+        [360, [['Cash Tendered:', 420], ['$22.00', 800], ['N', 860]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.lineTotal)).toEqual([B(8.45), B(7.95), B(3.5)]);
+    expect(parsed.vat).toBe(B(1.79));
+    expect(parsed.total).toBe(B(21.69));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /** ส่วนลดที่มีคำอื่นหุ้มหน้าหลัง ("Ohana Discount Breakfast") */
+  it('จับบรรทัดส่วนลดได้ แม้คำว่าส่วนลดจะอยู่กลางชื่อ', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['Green Salad', 420], ['8.00', 800]]],
+        [140, [['Wagyu Cheeseburger', 420], ['19.00', 800]]],
+        [180, [['Drink of the Day', 420], ['9.75', 800]]],
+        [240, [['Subtotal', 420], ['36.75', 800]]],
+        [280, [['Ohana Discount Breakfast', 420], ['-3.30', 800]]],
+        [320, [['Total', 420], ['33.45', 800]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.discount).toBe(B(3.3));
+    expect(parsed.total).toBe(B(33.45));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /**
+   * OCR อ่านบรรทัดท้ายบิลเละจนเหลือตัวอักษรเดียว แต่ยังอ่านตัวเลขได้
+   * ถ้ามียอดที่ใหญ่กว่าทุกยอดที่คิดได้ แปลว่าอ่านตกบรรทัดสำคัญไป
+   * จะบอกว่า "ตรงกัน" ไม่ได้ ต่อให้ที่เหลือสอดคล้องกันเองก็ตาม
+   */
+  it('ไม่บอกว่าตรงกัน ถ้ามีบรรทัดที่อ่านชื่อไม่ออกแต่ยอดใหญ่กว่าที่คิดได้', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['Grilled Skirt Steak', 420], ['28.00', 800]]],
+        [140, [['Fountain Sodas', 420], ['3.00', 800]]],
+        [180, [['Side Salad', 420], ['4.00', 800]]],
+        [240, [['Subtotal', 420], ['35.00', 800]]],
+        [320, [['น่', 420], ['38.75', 800]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.reconciled).toBe(false);
+  });
+
   /** ตัวเลขชิดขวา ขอบซ้ายจึงไม่ตรงกัน ห้ามแตกเป็นสองคอลัมน์ */
   it('จับเป็นคอลัมน์เดียว แม้ตัวเลขจะยาวไม่เท่ากัน', () => {
     const parsed = parseReceipt(

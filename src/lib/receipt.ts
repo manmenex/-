@@ -105,7 +105,7 @@ const SUMMARY: { kind: SummaryKind; words: string[]; suffix?: string[]; anywhere
     ],
     anywhere: ['balance due', 'amount due', 'total due', 'grand total', 'net total'],
   },
-  { kind: 'discount', words: ['ส่วนลด', 'ลดราคา', 'discount'] },
+  { kind: 'discount', words: ['ส่วนลด', 'ลดราคา', 'discount'], anywhere: ['discount'] },
   {
     kind: 'service',
     words: ['ค่าบริการ', 'เซอร์วิส', 'ค่าทิป', 'service charge', 'service', 'svc', 'gratuity', 'grat'],
@@ -216,6 +216,18 @@ const DIGIT_LOOKALIKE: Record<string, string> = {
  * ตัวสุดท้ายของทศนิยมโดนบ่อยที่สุด เพราะหมึกบนกระดาษความร้อนจางตรงขอบ
  * ซ่อมเฉพาะตอนที่ส่วนหน้าเป็นรูปแบบเงินชัดเจนอยู่แล้ว จะได้ไม่ไปแตะชื่อสินค้า
  */
+/**
+ * สัญลักษณ์สกุลเงินที่ติดมาหน้าตัวเลข
+ * ใบฝรั่งพิมพ์ "$21.69" ติดกันเป็นก้อนเดียว ซึ่งเดิมอ่านไม่ออกเลย
+ * ทำให้บรรทัด "AMOUNT DUE: $21.69" หายไปทั้งบรรทัด แล้วรายงานยอดก่อนภาษีแทน
+ */
+const CURRENCY_MARK = /^[$\u20ac\u00a3\u00a5\u20a9\u0e3f\u20ab\u20b9]\s?/;
+
+/** ตัดสัญลักษณ์สกุลเงินหน้าตัวเลขออก ส่วนที่เหลือค่อยเอาไปตรวจว่าเป็นเงินไหม */
+export function stripCurrency(text: string): string {
+  return text.replace(CURRENCY_MARK, '');
+}
+
 export function repairDigits(text: string): string {
   const slip = /^(-?\d[\d,]*\.\d?)([^\d])$/.exec(text);
   if (!slip) return text;
@@ -259,7 +271,8 @@ function detectColumns(lines: ReceiptLine[]): Columns | null {
   const spots: number[] = [];
   for (const line of lines) {
     for (const word of line.words ?? []) {
-      if (MONEY_WORD.test(word.text) && parseBaht(word.text)) spots.push(word.x1);
+      const money = stripCurrency(word.text);
+      if (MONEY_WORD.test(money) && parseBaht(money)) spots.push(word.x1);
     }
   }
   if (spots.length < 2) return null;
@@ -298,7 +311,7 @@ function clusterPositions(spots: number[]): { center: number; count: number }[] 
 function amountIn(line: ReceiptLine, column: number): { value: Money; decimals: boolean } | null {
   for (const word of line.words ?? []) {
     if (Math.abs(word.x1 - column) > COLUMN_TOLERANCE) continue;
-    const text = repairDigits(word.text);
+    const text = repairDigits(stripCurrency(word.text));
     if (!AMOUNT_WORD.test(text)) continue;
     if (isReferenceNumber(text)) continue;
     const value = parseBaht(text);
@@ -491,11 +504,13 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
        * ของเดิมเขียนลงตัวแปรเดียวกัน ตัวหลังเลยหายไป แล้วรายงานยอดก่อนภาษีเป็นยอดบิล
        * พร้อมบอกว่า "ตรงกัน" เพราะรายการบวกกันได้เท่ายอดรวมย่อยพอดี
        *
-       * รับเฉพาะตอนที่ยอดมากกว่าแต่ไม่เกินสองเท่า ภาษีกับค่าบริการรวมกัน
-       * ไม่เคยเกินตัวบิล ถ้าเกินแปลว่า OCR อ่านตัวเลขเพี้ยน (เจอมาแล้ว: ฿450 เป็น 8450)
+       * รับเฉพาะยอดที่อยู่ในช่วงครึ่งเท่าถึงสองเท่าของยอดรวมย่อย
+       * มากกว่าได้เพราะมีภาษีกับค่าบริการ น้อยกว่าได้เพราะมีส่วนลด
+       * แต่ไม่เคยต่างกันเป็นเท่าตัว ถ้าต่างมากแปลว่า OCR อ่านเพี้ยน
+       * (เจอมาแล้ว: "฿450.00" อ่านเป็น "8450.00")
        */
       if (subtotal === undefined) subtotal = value;
-      else if (netTotal === undefined && value > subtotal && value <= subtotal * 2) {
+      else if (netTotal === undefined && value >= subtotal / 2 && value <= subtotal * 2) {
         netTotal = value;
       }
     }
@@ -533,7 +548,7 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
   const accounted = Math.max(result.total ?? 0, subtotal ?? 0);
   const missed = restRows.some((row) => {
     const label = nameFrom(row.line, withCount).replace(/[^\p{L}]/gu, '');
-    return label.length >= 3 && classify(nameFrom(row.line, withCount)) === null &&
+    return label.length >= 1 && classify(nameFrom(row.line, withCount)) === null &&
       Math.abs(row.amount) > accounted;
   });
 
