@@ -114,10 +114,17 @@ export function parseReceipt(lines: ReceiptLine[]): ParsedReceipt {
 
 // ── อ่านแบบรู้ตำแหน่งคอลัมน์ (ทางหลัก) ────────────────────────────────────
 
+/**
+ * ตำแหน่ง "ขอบขวา" ของคอลัมน์ตัวเลข ไม่ใช่ขอบซ้าย
+ *
+ * ตัวเลขเงินบนใบเสร็จชิดขวาเสมอ ขอบซ้ายจึงขยับตามจำนวนหลัก
+ * วัดจากใบจริง: ขอบซ้ายกระจาย 1510-1726 (216px) จนแตกเป็นหลายคอลัมน์
+ * แต่ขอบขวาอยู่ 1852-1863 (11px) เป็นคอลัมน์เดียวเป๊ะ
+ */
 interface Columns {
-  /** ขอบซ้ายของคอลัมน์ยอดเงิน */
+  /** ขอบขวาของคอลัมน์ยอดเงิน */
   amount: number;
-  /** ขอบซ้ายของคอลัมน์ราคาต่อหน่วย ถ้ามี */
+  /** ขอบขวาของคอลัมน์ราคาต่อหน่วย ถ้ามี */
   unitPrice?: number;
 }
 
@@ -132,7 +139,7 @@ function detectColumns(lines: ReceiptLine[]): Columns | null {
   const spots: number[] = [];
   for (const line of lines) {
     for (const word of line.words ?? []) {
-      if (MONEY_WORD.test(word.text) && parseBaht(word.text)) spots.push(word.x0);
+      if (MONEY_WORD.test(word.text) && parseBaht(word.text)) spots.push(word.x1);
     }
   }
   if (spots.length < 2) return null;
@@ -170,7 +177,7 @@ function clusterPositions(spots: number[]): { center: number; count: number }[] 
 
 function amountIn(line: ReceiptLine, column: number): Money | null {
   for (const word of line.words ?? []) {
-    if (Math.abs(word.x0 - column) > COLUMN_TOLERANCE) continue;
+    if (Math.abs(word.x1 - column) > COLUMN_TOLERANCE) continue;
     if (!AMOUNT_WORD.test(word.text)) continue;
     const value = parseBaht(word.text);
     if (value !== null && value !== 0) return value;
@@ -200,8 +207,10 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
   if (rows.length === 0) return result;
 
   const split = findSubtotalSplit(rows, (row) => nameFrom(row.line, columns));
-  const itemRows = split === null ? rows.filter(isItemRow) : rows.slice(0, split);
-  const restRows = split === null ? [] : rows.slice(split);
+  const hasSplit = split !== null;
+  const itemRows = hasSplit ? rows.slice(0, split) : rows.filter(isItemRow);
+  // หาจุดตัดไม่เจอก็ยังต้องอ่านบรรทัดสรุป ไม่งั้นยอดบนใบเสร็จหายไปเฉยๆ
+  const restRows = hasSplit ? rows.slice(split) : rows.filter((row) => !isItemRow(row));
 
   for (const row of itemRows) {
     const label = nameFrom(row.line, columns);
@@ -215,11 +224,13 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
     const kind = classify(nameFrom(row.line, columns));
     const value = Math.abs(row.amount);
     // แถวแรกหลังจุดตัดคือยอดรวมรายการ ต่อให้ OCR อ่านคำว่า "รวม" เพี้ยนไปก็ตาม
-    if (index === 0 && (kind === null || kind === 'sub' || kind === 'subtotal')) {
+    // เชื่อได้เฉพาะตอนมีจุดตัดจริง ไม่มีจุดตัดก็ต้องให้คำขึ้นต้นบอกเท่านั้น
+    if (hasSplit && index === 0 && (kind === null || kind === 'sub' || kind === 'subtotal')) {
       subtotal = value;
       continue;
     }
     if (kind === 'net') netTotal = value;
+    else if (kind === 'subtotal') subtotal ??= value;
     else if (kind === 'sub') subtotal ??= value;
     else if (kind === 'discount') result.discount ??= value;
     else if (kind === 'service') result.serviceCharge ??= value;
@@ -287,14 +298,16 @@ function isItemRow(row: Row): boolean {
 }
 
 /**
- * ชื่อรายการ = คำที่อยู่ซ้ายของคอลัมน์ตัวเลข
- * ตัดรหัสสินค้าที่นำหน้าและขยะที่ OCR แถมมาทางซ้ายออก
+ * ข้อความในคอลัมน์รายการ = คำที่อยู่ซ้ายของคอลัมน์ตัวเลข
+ *
+ * คืนของดิบ ยังไม่ตัดรหัสสินค้าหรือจำนวนชิ้นออก เพราะคนเรียกต้องใช้ของดิบ:
+ * toItem ต้องอ่านจำนวนชิ้นที่นำหน้าชื่อ ถ้าตัดทิ้งที่นี่จำนวนจะหายทั้งบิล
  */
 function nameFrom(line: ReceiptLine, columns: Columns): string {
-  const limit = (columns.unitPrice ?? columns.amount) - 15;
-  const words = (line.words ?? []).filter((word) => word.x0 < limit);
-  const text = words.length > 0 ? joinWords(words) : collapse(line.text);
-  return cleanName(text);
+  // คอลัมน์เก็บเป็นขอบขวา ตัวเลขกว้างได้ถึงราวครึ่งหนึ่งของ tolerance จึงเผื่อไว้
+  const limit = (columns.unitPrice ?? columns.amount) - COLUMN_TOLERANCE * 4;
+  const words = (line.words ?? []).filter((word) => word.x1 < limit);
+  return words.length > 0 ? joinWords(words) : collapse(line.text);
 }
 
 /**
@@ -306,31 +319,65 @@ function nameFrom(line: ReceiptLine, columns: Columns): string {
  * ใช้เกณฑ์ตามขนาดตัวอักษรในบรรทัดนั้น จะได้ไม่พังเวลาฟอนต์ใหญ่หรือเล็กกว่านี้
  */
 function joinWords(words: ReceiptWord[]): string {
-  const widths = words.map((word) => word.x1 - word.x0).sort((a, b) => a - b);
-  const median = widths[Math.floor(widths.length / 2)] || 8;
-  const threshold = Math.max(2, median * 0.35);
-
   let text = '';
   let previous: ReceiptWord | null = null;
   for (const word of words) {
-    if (previous && word.x0 - previous.x1 > threshold) text += ' ';
+    if (previous && word.x0 - previous.x1 > spaceThreshold(previous, word)) text += ' ';
     text += word.text;
     previous = word;
   }
   return collapse(text);
 }
 
+const THAI_CHAR = /[\u0E00-\u0E7F]/;
+
+/**
+ * ช่องว่างต้องกว้างเท่าไหร่จึงนับว่าเป็นช่องว่างจริง
+ *
+ * วัดจากใบจริง: ระยะระหว่างตัวอักษรไทยในคำเดียวกันกว้างสุด 12px
+ * ส่วนระยะระหว่างคำอังกฤษจริงแคบสุด 13px — ใกล้กันเกินกว่าจะตัดสินด้วยระยะล้วน
+ * แต่ tesseract ซอยเป็นตัวๆ แค่กับภาษาไทย อังกฤษมันหั่นตามคำถูกอยู่แล้ว
+ * จึงยุบติดกันเฉพาะตอนไทยชนไทย นอกนั้นเชื่อที่ tesseract แบ่งมา
+ */
+function spaceThreshold(previous: ReceiptWord, next: ReceiptWord): number {
+  const before = [...previous.text];
+  const after = [...next.text];
+  const thaiPair =
+    THAI_CHAR.test(before[before.length - 1] ?? '') && THAI_CHAR.test(after[0] ?? '');
+  if (!thaiPair) return 2;
+  // เทียบกับความกว้างต่อตัวอักษร เพราะขนาดฟอนต์ต่างกันไปตามรูป
+  const charWidth = (previous.x1 - previous.x0) / Math.max(1, before.length);
+  return Math.max(6, charWidth * 1.2);
+}
+
 export function cleanName(text: string): string {
+  return stripLeadingQuantity(text).name;
+}
+
+/**
+ * แยกจำนวนชิ้นที่พิมพ์ไว้หน้าชื่อออกมา เช่น "3 Matcha" หรือ "2 Dip pistachio donut"
+ *
+ * ใบเสร็จร้านอาหารหลายเจ้าวางคอลัมน์จำนวนไว้ซ้ายสุด ไม่ใช่ขวาแบบใบกำกับภาษี
+ * ของเดิมโยนเลขนั้นทิ้งไปกับขยะนำหน้า จำนวนชิ้นจึงเป็น 1 หมดทั้งบิล
+ */
+export function stripLeadingQuantity(text: string): { name: string; quantity: number } {
   let tokens = collapse(text).split(' ').filter(Boolean);
 
   // ตัดทุกอย่างถึงรหัสสินค้า ถ้ามันโผล่มาในสามคำแรก
   const codeAt = tokens.slice(0, 3).findIndex((token) => /^\d{5,}$/.test(token));
   if (codeAt >= 0) tokens = tokens.slice(codeAt + 1);
 
+  let quantity = 1;
+  // เลขตัวแรกที่เป็นจำนวนเต็มสั้นๆ และมีชื่อตามมา = คอลัมน์จำนวน
+  if (tokens.length >= 2 && /^\d{1,2}$/.test(tokens[0]) && /\p{L}/u.test(tokens.slice(1).join(''))) {
+    quantity = Number(tokens[0]);
+    tokens = tokens.slice(1);
+  }
+
   // ตัดเศษขยะนำหน้าที่ไม่มีตัวอักษรเลย เช่น "(|" "|" "2"
   while (tokens.length > 0 && !/\p{L}{2}/u.test(tokens[0])) tokens.shift();
 
-  return collapse(tokens.join(' ')).replace(TRAILING_UNIT, '').trim();
+  return { name: collapse(tokens.join(' ')).replace(TRAILING_UNIT, '').trim(), quantity };
 }
 
 // ── อ่านแบบข้อความเรียง (ทางสำรองตอนไม่มีตำแหน่งคำ) ──────────────────────
@@ -380,7 +427,9 @@ function parseByText(lines: ReceiptLine[]): ParsedReceipt {
 // ── ตัวช่วย ───────────────────────────────────────────────────────────────
 
 function toItem(label: string, lineTotal: Money, unitPrice: Money | null): ReceiptItem {
-  const { name, quantity } = splitQuantity(label);
+  const lead = stripLeadingQuantity(label);
+  const { name, quantity } =
+    lead.quantity > 1 ? { name: lead.name, quantity: lead.quantity } : splitQuantity(lead.name);
 
   /**
    * มีคอลัมน์ราคาต่อหน่วยให้ดู ใช้ตัวนั้นหาจำนวนชิ้นแทนการอ่านจากชื่อ
@@ -416,11 +465,18 @@ function splitQuantity(label: string): { name: string; quantity: number } {
  * ถ้าเทียบแบบ "มีคำนี้อยู่ในบรรทัด" รายการชื่อ "ซีฟู้ดรวม" จะโดนนับเป็นยอดรวมทันที
  */
 function classify(label: string): SummaryKind | null {
-  const normalized = label.toLowerCase().replace(/[\s:.]+$/, '').trim();
+  // OCR อ่าน "Subtotal:" เป็น "Subtotal;" ได้ ตัดอักขระท้ายที่ไม่ใช่ตัวอักษรหรือเลขทิ้งให้หมด
+  // ต้องนับ \p{M} เป็นตัวอักษรด้วย ไม่งั้นสระท้ายคำโดนตัด "ยอดสุทธิ" จะเหลือ "ยอดสุทธ"
+  const normalized = label
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}%]+$/u, '')
+    .trim();
   if (!normalized) return null;
+  // คอลัมน์จำนวนชิ้นอยู่ซ้ายสุด เลขจึงหลงมาติดหน้าคำว่า "Subtotal:" ได้
+  const candidates = [normalized, normalized.replace(/^\d{1,2}\s+/, '')];
   for (const { kind, words } of SUMMARY) {
     for (const word of words) {
-      if (normalized.startsWith(word.toLowerCase())) return kind;
+      if (candidates.some((text) => text.startsWith(word.toLowerCase()))) return kind;
     }
   }
   return null;

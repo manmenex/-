@@ -684,22 +684,19 @@ function StepItems({
         <QuickPayer bill={bill} patch={patch} members={members} />
       )}
 
-      {(bill.photoIds?.length ?? 0) > 0 && (
-        <div className="mt-3">
-          <ReceiptScanner
-            bill={bill}
-            members={members}
-            patch={patch}
-            onTotalTouched={onTotalTouched}
-          />
-        </div>
-      )}
+      <div className="mt-3">
+        <ReceiptScanner
+          bill={bill}
+          members={members}
+          patch={patch}
+          onTotalTouched={onTotalTouched}
+          prominent={bill.items.length === 0}
+        />
+      </div>
 
       {bill.items.length === 0 ? (
         <p className="py-10 text-center text-sm text-ink-soft">
-          {(bill.photoIds?.length ?? 0) > 0
-            ? 'ยังไม่มีรายการ กดสแกนจากรูปบิล หรือพิมพ์ชื่อกับราคาแล้วกด +'
-            : 'ยังไม่มีรายการ พิมพ์ชื่อกับราคาแล้วกด + ได้เลย'}
+          ยังไม่มีรายการ พิมพ์ชื่อกับราคาแล้วกด + ได้เลย
         </p>
       ) : (
         <ul className="mt-5">

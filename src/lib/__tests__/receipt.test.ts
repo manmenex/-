@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MIN_CONFIDENCE, parseReceipt, type ReceiptLine } from '../receipt';
 import vetReceipt from './fixtures/vet-receipt.json';
+import dayByDayReceipt from './fixtures/daybyday-receipt.json';
 import { B } from '../../core/__tests__/factories';
 
 /**
@@ -291,5 +292,46 @@ describe('ความมั่นใจของ OCR', () => {
   it('ไม่มีค่าความมั่นใจส่งมา (ไม่ได้มาจาก OCR) ถือว่าเชื่อได้', () => {
     const parsed = parseReceipt(lines(['ร้านทดสอบ', 10], ['ข้าว 50.00', 60], ['รวม 50.00', 100]));
     expect(parsed.confidence).toBe(100);
+  });
+});
+
+/**
+ * ใบเสร็จร้าน Day by Day — ผลจริงจาก tesseract ไม่ได้แก้ให้สวย
+ *
+ * ใบนี้วางคอลัมน์จำนวนชิ้นไว้ซ้ายสุด ("3 Matcha 195.00") ไม่ใช่ขวาแบบใบกำกับภาษี
+ * และตัวเลขเงินชิดขวา ขอบซ้ายจึงกระจาย 216px จนเคยทำให้จับคอลัมน์แตกเป็นสองอัน
+ */
+describe('ใบเสร็จ Day by Day (คอลัมน์จำนวนอยู่ซ้าย)', () => {
+  const parsed = parseReceipt(dayByDayReceipt as ReceiptLine[]);
+
+  it('ได้รายการครบ 11 รายการ ไม่เอาบรรทัด Subtotal มาเป็นรายการ', () => {
+    expect(parsed.items).toHaveLength(11);
+    expect(parsed.items.map((item) => item.name)).not.toContain('Subtotal;');
+  });
+
+  it('อ่านยอดบนใบเสร็จได้ ทั้งที่ OCR อ่าน "Subtotal:" เป็น "Subtotal;"', () => {
+    expect(parsed.total).toBe(B(1190));
+  });
+
+  it('อ่านจำนวนชิ้นจากคอลัมน์ซ้าย แล้วหารราคาต่อชิ้นให้เอง', () => {
+    const matcha = parsed.items[1];
+    expect(matcha.name).toBe('Matcha');
+    expect(matcha.quantity).toBe(3);
+    expect(matcha.unitPrice).toBe(B(65));
+    expect(matcha.lineTotal).toBe(B(195));
+  });
+
+  it('ต่อคำอังกฤษด้วยช่องว่าง แต่ไม่แทรกช่องว่างกลางคำไทย', () => {
+    const names = parsed.items.map((item) => item.name);
+    expect(names).toContain('Dip pistachio donut');
+    expect(names).toContain('ราสเบอรี');
+  });
+
+  /**
+   * บรรทัดแรก OCR อ่าน "195.00" เป็น "19800" จุดทศนิยมหายไปเลย
+   * กู้คืนจากข้อความที่ได้มาไม่ได้ ที่ทำได้คือต้องไม่บอกว่าตรงกัน
+   */
+  it('บอกว่าไม่ตรงกัน เมื่อบรรทัดที่ OCR อ่านทศนิยมหายทำให้ผลรวมเพี้ยน', () => {
+    expect(parsed.reconciled).toBe(false);
   });
 });

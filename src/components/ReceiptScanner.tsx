@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
 import { PhotoPicker } from './PhotoAttach';
 import { CropBox } from './CropBox';
 import { FULL_CROP, isFullCrop, type CropRect } from '../lib/crop';
 import { formatMoney } from '../core/currency';
 import { newId } from '../store/ids';
-import { loadPhoto } from '../store/photos';
+import { loadPhoto, savePhoto } from '../store/photos';
+import { compressImage } from '../lib/image';
 import { MIN_CONFIDENCE, type ParsedReceipt } from '../lib/receipt';
 import type { Adjustment, Bill, LineItem, Member } from '../core/types';
 
@@ -21,11 +22,14 @@ export function ReceiptScanner({
   members,
   patch,
   onTotalTouched,
+  prominent = false,
 }: {
   bill: Bill;
   members: Member[];
   patch: (changes: Partial<Bill>) => void;
   onTotalTouched: () => void;
+  /** ยังไม่มีรายการในบิล ปุ่มนี้คือสิ่งที่ควรกดต่อ ทำให้เด่นขึ้น */
+  prominent?: boolean;
 }) {
   const photoIds = bill.photoIds ?? [];
   const [open, setOpen] = useState(false);
@@ -38,12 +42,12 @@ export function ReceiptScanner({
   const [useFees, setUseFees] = useState(true);
   const [crop, setCrop] = useState<CropRect>(FULL_CROP);
   const [cropping, setCropping] = useState(false);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     if (photoIds.length > 0 && !photoIds.includes(picked)) setPicked(photoIds[0]);
   }, [photoIds, picked]);
-
-  if (photoIds.length === 0) return null;
 
   const reset = () => {
     setParsed(null);
@@ -132,18 +136,88 @@ export function ReceiptScanner({
     reset();
   };
 
+  /**
+   * ยังไม่มีรูปในบิล ให้ปุ่มนี้เปิดกล้องเองเลย
+   * ของเดิมปุ่มสแกนโผล่เฉพาะตอนมีรูปแล้ว คนที่ยังไม่เคยแนบรูปจึงไม่เคยเห็นว่าสแกนได้
+   */
+  const takePhoto = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAdding(true);
+    try {
+      const { blob } = await compressImage(files[0]);
+      const id = await savePhoto(blob);
+      patch({ photoIds: [...photoIds, id] });
+      setPicked(id);
+      resetForPhoto();
+      setCropping(false);
+      setOpen(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'บันทึกรูปไม่สำเร็จ');
+    } finally {
+      setAdding(false);
+      if (cameraRef.current) cameraRef.current.value = '';
+    }
+  };
+
+  const hasPhoto = photoIds.length > 0;
+
   return (
     <>
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        onChange={(event) => takePhoto(event.target.files)}
+      />
+
       <button
         type="button"
-        className="tap text-[13px] text-accent"
+        className={`tap flex w-full items-center gap-3 border px-3 py-3 text-left transition-colors active:bg-paper-sunk ${
+          prominent ? 'border-accent' : 'border-rule'
+        }`}
+        disabled={adding}
         onClick={() => {
+          if (!hasPhoto) {
+            cameraRef.current?.click();
+            return;
+          }
           setOpen(true);
           resetForPhoto();
           setCropping(false);
         }}
       >
-        สแกนรายการจากรูปบิล
+        <svg
+          className={prominent ? 'shrink-0 text-accent' : 'shrink-0 text-ink-soft'}
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M5 3h14v18l-2.3-1.6-2.4 1.6-2.3-1.6-2.4 1.6L7 19.4 5 21z" />
+          <path d="M8.5 8h7M8.5 12h7M8.5 16h4" />
+        </svg>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-medium text-ink">สแกนรายการจากรูปบิล</span>
+          <span className="block text-[12px] leading-snug text-ink-soft">
+            {adding
+              ? 'กำลังบันทึกรูป…'
+              : hasPhoto
+                ? 'อ่านชื่อกับราคาจากใบเสร็จให้ ไม่ต้องพิมพ์เอง'
+                : 'ถ่ายรูปใบเสร็จ แล้วอ่านชื่อกับราคาให้ ไม่ต้องพิมพ์เอง'}
+          </span>
+        </span>
+        <span className="shrink-0 text-[18px] leading-none text-ink-faint" aria-hidden>
+          ›
+        </span>
       </button>
 
       <Sheet open={open} title="สแกนรายการจากใบเสร็จ" onClose={() => setOpen(false)}>
