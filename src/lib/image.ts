@@ -1,3 +1,5 @@
+import { sauvola, toGray, toRgba } from './binarize';
+
 /**
  * image.ts — ย่อรูปที่ถ่ายมาก่อนเก็บ
  *
@@ -11,6 +13,14 @@ export const MAX_EDGE = 1600;
 /** ถ้าย่อแล้วยังใหญ่กว่านี้ ลดคุณภาพลงอีกชั้น (ไบต์) */
 export const TARGET_BYTES = 500_000;
 const QUALITY_STEPS = [0.72, 0.6, 0.48];
+
+/** กรอบพิกเซลที่จะอ่าน */
+export interface PixelBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
 
 export interface ProcessedImage {
   blob: Blob;
@@ -65,8 +75,77 @@ async function decode(file: Blob): Promise<CanvasImageSource & { width: number; 
   }
 }
 
-function toBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+function toBlob(
+  canvas: HTMLCanvasElement,
+  quality: number,
+  type = 'image/jpeg',
+): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+/**
+ * ด้านยาวขั้นต่ำที่ส่งให้ตัวอ่าน เล็กกว่านี้ขยายขึ้นก่อน
+ *
+ * วัดจากใบเสร็จใบเดียวกันย่อให้เหลือสูง 640px (ประมาณตอนที่ใบเสร็จกินพื้นที่
+ * แค่ 40% ของเฟรม): อ่านรายการถูก 7/11 ความมั่นใจ 55
+ * ขยายเป็นสองเท่าแล้วอ่านใหม่: ถูก 11/11 ความมั่นใจ 86
+ * ตัวอ่านต้องการความสูงตัวอักษรระดับหนึ่ง ขยายแล้วไม่ได้รายละเอียดเพิ่ม
+ * แต่มันแกะรูปทรงตัวอักษรได้ดีขึ้นจริง
+ */
+export const MIN_OCR_EDGE = 1400;
+
+/** ขยายเกินนี้ไม่ได้อะไรเพิ่ม มีแต่กินแรมกับเวลา */
+const MAX_OCR_EDGE = 2600;
+
+/** ขยายเท่าไหร่ถึงจะพอให้ตัวอ่านแกะออก 1 = ใหญ่พออยู่แล้ว */
+export function scaleForOcr(width: number, height: number): number {
+  const edge = Math.max(width, height);
+  if (edge <= 0) return 1;
+  const wanted = Math.min(MIN_OCR_EDGE / edge, MAX_OCR_EDGE / edge);
+  return Math.max(1, wanted);
+}
+
+/**
+ * เตรียมรูปให้ตัวอ่าน: ครอบตัด ขยาย และตัดขาวดำถ้าสั่ง
+ *
+ * ครอบตัดเองตรงนี้ ไม่ส่งกรอบไปให้ตัวอ่าน เพราะต้องขยายเฉพาะส่วนที่จะอ่านจริง
+ * และถ้าตัดขาวดำ ก็ต้องคิดค่าตัดจากพื้นที่นั้น พื้นหลังมืดรอบใบเสร็จจะได้ไม่ดึงค่าเฉลี่ย
+ *
+ * ตัดขาวดำออกเป็น PNG ไม่ใช่ JPEG เพราะ JPEG จะใส่ขอบเทาฟุ้งรอบตัวอักษรกลับเข้ามา
+ * ซึ่งทำลายสิ่งที่เพิ่งทำไปทั้งหมด
+ */
+export async function prepareForOcr(
+  file: Blob,
+  box?: PixelBox,
+  binarize = false,
+): Promise<Blob> {
+  const source = await decode(file);
+  const area = box ?? { left: 0, top: 0, width: source.width, height: source.height };
+  const scale = scaleForOcr(area.width, area.height);
+  const width = Math.round(area.width * scale);
+  const height = Math.round(area.height * scale);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: binarize });
+  if (!context) throw new Error('เครื่องนี้วาดรูปลง canvas ไม่ได้');
+
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(source, area.left, area.top, area.width, area.height, 0, 0, width, height);
+  if ('close' in source && typeof source.close === 'function') source.close();
+
+  if (binarize) {
+    const pixels = context.getImageData(0, 0, width, height);
+    const binary = sauvola(toGray(pixels.data, width, height));
+    // เขียนทับลงก้อนเดิม ไม่สร้าง ImageData ใหม่ จะได้ไม่ต้องยุ่งกับชนิดบัฟเฟอร์
+    pixels.data.set(toRgba(binary));
+    context.putImageData(pixels, 0, 0);
+  }
+
+  const blob = await toBlob(canvas, binarize ? 1 : 0.9, binarize ? 'image/png' : 'image/jpeg');
+  if (!blob) throw new Error('เตรียมรูปให้ตัวอ่านไม่สำเร็จ');
+  return blob;
 }
 
 /** ย่อ + บีบอัดเป็น JPEG พร้อมเก็บ */

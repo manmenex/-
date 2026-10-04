@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_CANDIDATES, extractAmounts } from '../ocr';
+import { MAX_CANDIDATES, extractAmounts, scoreParse } from '../ocr';
 import { B } from '../../core/__tests__/factories';
 
 /**
@@ -90,5 +90,54 @@ describe('extractAmounts', () => {
     expect(() => extractAmounts('....,,,,')).not.toThrow();
     expect(extractAmounts('....,,,,')).toEqual([]);
     expect(extractAmounts(undefined as unknown as string)).toEqual([]);
+  });
+});
+
+/**
+ * เลือกผลระหว่างการอ่านสองรอบ
+ *
+ * ตัวเลขในเทสชุดนี้มาจากการวัดจริงกับใบเสร็จใบเดียวกันสองเวอร์ชัน
+ * (ต้นฉบับที่ถ่ายมาดี กับที่หรี่แสงและหมุนให้เบี้ยว) ทั้งแบบอ่านตรงๆ และแบบตัดขาวดำ
+ * ตัวตัดสินต้องเลือกถูกทั้งสองใบ ไม่ใช่ใบใดใบหนึ่ง
+ */
+describe('scoreParse', () => {
+  const parse = (items: number, reconciled: boolean, confidence: number) => ({
+    items: Array.from({ length: items }, () => ({
+      name: 'x',
+      quantity: 1,
+      unitPrice: 100,
+      lineTotal: 100,
+    })),
+    reconciled,
+    confidence,
+  });
+
+  /**
+   * ผลที่อ่านได้รายการเดียวจะ "ยอดตรงกัน" เสมอ เพราะมันตรงกับตัวมันเอง
+   * ถ้าเชื่อสัญญาณนั้นเดี่ยวๆ จะทิ้งผลที่อ่านได้ครบ 12 รายการไปเลย
+   */
+  it('ไม่หลงเชื่อผลรายการเดียวที่ยอดตรงกับตัวมันเอง', () => {
+    const good = parse(12, false, 92); // รูปที่ถ่ายมาดี อ่านตรงๆ
+    const binarized = parse(1, true, 58); // รูปเดียวกันหลังตัดขาวดำ แย่ลง
+    expect(scoreParse(good)).toBeGreaterThan(scoreParse(binarized));
+  });
+
+  it('เลือกผลที่อ่านได้ครบกว่า ตอนรูปถ่ายมืด', () => {
+    const dark = parse(1, true, 80); // รูปมืด อ่านตรงๆ ได้รายการเดียว
+    const binarized = parse(10, false, 61); // รูปเดียวกันหลังตัดขาวดำ
+    expect(scoreParse(binarized)).toBeGreaterThan(scoreParse(dark));
+  });
+
+  it('ยอดตรงกันชนะ ถ้ามีรายการมากพอจนเชื่อได้', () => {
+    expect(scoreParse(parse(5, true, 70))).toBeGreaterThan(scoreParse(parse(8, false, 90)));
+  });
+
+  it('เท่ากันทุกอย่าง ตัดสินด้วยความมั่นใจของตัวอ่าน', () => {
+    expect(scoreParse(parse(6, true, 90))).toBeGreaterThan(scoreParse(parse(6, true, 70)));
+  });
+
+  it('รายการน้อยเกินไป ไม่นับว่ายอดตรงกัน', () => {
+    expect(scoreParse(parse(2, true, 90))).toBeLessThan(1000);
+    expect(scoreParse(parse(3, true, 90))).toBeGreaterThan(1000);
   });
 });

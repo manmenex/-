@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_EDGE, blobToDataUrl, dataUrlToBlob, fitWithin } from '../image';
+import { MAX_EDGE, blobToDataUrl, dataUrlToBlob, fitWithin, MIN_OCR_EDGE, scaleForOcr } from '../image';
 
 describe('fitWithin — ย่อรูปให้ด้านยาวไม่เกินเพดาน', () => {
   it('รูปที่เล็กกว่าเพดานอยู่แล้วไม่ขยาย', () => {
@@ -76,5 +76,32 @@ describe('blobToDataUrl <-> dataUrlToBlob — ไป-กลับแล้วต
     const back = dataUrlToBlob(await blobToDataUrl(blob));
 
     expect(back.size).toBe(bytes.length);
+  });
+});
+
+/**
+ * ตัวอ่านต้องการความสูงตัวอักษรระดับหนึ่งถึงจะแกะออก
+ * วัดจากใบเสร็จเดียวกัน: ย่อเหลือสูง 640px อ่านถูก 7/11 ความมั่นใจ 55
+ * ขยายสองเท่าแล้วอ่านใหม่ ถูก 11/11 ความมั่นใจ 86
+ */
+describe('scaleForOcr', () => {
+  it('ขยายรูปที่เล็กเกินกว่าจะอ่านออก', () => {
+    expect(scaleForOcr(360, 640)).toBeGreaterThan(2);
+    expect(640 * scaleForOcr(360, 640)).toBeCloseTo(MIN_OCR_EDGE, 5);
+  });
+
+  it('รูปที่ใหญ่พออยู่แล้วไม่ต้องแตะ', () => {
+    expect(scaleForOcr(1165, 1600)).toBe(1);
+    expect(scaleForOcr(1400, 900)).toBe(1);
+    expect(scaleForOcr(2400, 3200)).toBe(1);
+  });
+
+  it('วัดจากด้านยาว ไม่ใช่ด้านสั้น', () => {
+    expect(scaleForOcr(200, 1500)).toBe(1);
+    expect(scaleForOcr(1500, 200)).toBe(1);
+  });
+
+  it('ขนาดศูนย์ไม่ทำให้พัง', () => {
+    expect(scaleForOcr(0, 0)).toBe(1);
   });
 });

@@ -476,6 +476,40 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     expect(parsed.total).toBe(B(150));
   });
 
+  /**
+   * ใบเสร็จร้านเหล้า (Ocha POS) — จำนวนอยู่คอลัมน์กลาง ระหว่างชื่อกับราคา
+   * และมีค่าบริการ 10% ต่อท้ายยอดรวม ตัวเลขจากใบจริงที่ผู้ใช้ส่งมา
+   */
+  it('จำนวนอยู่คอลัมน์กลาง และมีค่าบริการต่อท้าย', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['Out of body', 420], ['1', 500], ['720.00', 700]]],
+        [140, [['Out Of Control', 420], ['2', 500], ['380.00', 700]]],
+        [180, [['out of the blue', 420], ['1', 500], ['380.00', 700]]],
+        [220, [['Out of Nowhere', 420], ['1', 500], ['360.00', 700]]],
+        [260, [['Hennessy VSOP', 420], ['1', 500], ['440.00', 700]]],
+        [300, [['Out of sunset', 420], ['1', 500], ['320.00', 700]]],
+        [350, [['ยอดรวม', 420], ['7', 500], ['2,600.00', 700]]],
+        [390, [['ค่าบริการ 10%', 420], ['260.00', 700]]],
+        [430, [['ทั้งหมด', 420], ['2,860.00', 700]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(6);
+    expect(parsed.items.map((item) => item.quantity)).toEqual([1, 2, 1, 1, 1, 1]);
+    expect(parsed.items[1].unitPrice).toBe(B(190));
+    expect(parsed.items.map((item) => item.name)).toEqual([
+      'Out of body',
+      'Out Of Control',
+      'out of the blue',
+      'Out of Nowhere',
+      'Hennessy VSOP',
+      'Out of sunset',
+    ]);
+    expect(parsed.serviceCharge).toBe(B(260));
+    expect(parsed.total).toBe(B(2860));
+    expect(parsed.reconciled).toBe(true);
+  });
+
   /** ตัวเลขชิดขวา ขอบซ้ายจึงไม่ตรงกัน ห้ามแตกเป็นสองคอลัมน์ */
   it('จับเป็นคอลัมน์เดียว แม้ตัวเลขจะยาวไม่เท่ากัน', () => {
     const parsed = parseReceipt(

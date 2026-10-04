@@ -1,6 +1,7 @@
 import { parseBaht } from '../core/money';
-import { parseReceipt, type ParsedReceipt, type ReceiptLine } from './receipt';
+import { MIN_CONFIDENCE, parseReceipt, type ParsedReceipt, type ReceiptLine } from './receipt';
 import { isFullCrop, toPixels, type CropRect } from './crop';
+import { prepareForOcr, scaleForOcr, type PixelBox } from './image';
 import type { Money } from '../core/types';
 
 /**
@@ -171,9 +172,81 @@ async function rectangleFor(image: Blob, crop?: CropRect) {
  */
 export async function readReceipt(image: Blob, crop?: CropRect): Promise<ParsedReceipt> {
   const worker = await getWorker('receipt');
-  const options = await rectangleFor(image, crop);
-  const { data } = await worker.recognize(image, options, { text: true, blocks: true });
+  const box = await pixelBoxFor(image, crop);
+  const first = await readOnce(worker, image, box, false);
+  if (convincing(first)) return first;
+
+  /**
+   * รอบแรกยังไม่ถึงเกณฑ์ที่จะเอาไปติ๊กให้ ลองใหม่กับรูปขาวดำ
+   *
+   * ช่วยได้บ้างกับรูปที่ถ่ายมืด แต่ทำรูปที่ถ่ายมาดีอยู่แล้วแย่ลงชัดเจน
+   * จึงไม่เอามาเป็นทางหลัก และไม่เชื่อรอบสองทันที
+   * เอาสองผลมาให้คะแนนเทียบกันแล้วเลือกอันที่ดีกว่า
+   */
+  try {
+    const second = await readOnce(worker, image, box, true);
+    return scoreParse(second) > scoreParse(first) ? second : first;
+  } catch {
+    // เครื่องไหนทำ canvas ไม่ได้ ก็ใช้ผลรอบแรกไปตามเดิม ดีกว่าไม่ได้อะไรเลย
+    return first;
+  }
+}
+
+/**
+ * อ่านหนึ่งรอบ โดยเตรียมรูปก่อนถ้าจำเป็น
+ *
+ * รูปที่ไม่ได้ครอบตัดและใหญ่พออยู่แล้ว ส่งให้ตัวอ่านตรงๆ
+ * จะได้ไม่ต้องถอดรหัสแล้วเข้ารหัสรูปใหม่โดยไม่ได้อะไรขึ้นมา
+ */
+async function readOnce(
+  worker: Awaited<ReturnType<typeof getWorker>>,
+  image: Blob,
+  box: PixelBox & { whole: boolean },
+  binarize: boolean,
+): Promise<ParsedReceipt> {
+  const asIs = !binarize && box.whole && scaleForOcr(box.width, box.height) === 1;
+  const source = asIs ? image : await prepareForOcr(image, box, binarize);
+  const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
   return parseReceipt(linesOf(data));
+}
+
+/** น้อยกว่านี้ยังดูไม่ออกว่าอ่านได้จริงหรือฟลุก */
+const ENOUGH_ITEMS = 3;
+
+/**
+ * ผลรอบแรกถึงเกณฑ์ที่จะเอาไปเสนอให้ติ๊กได้ ไม่ต้องเสียเวลาอ่านซ้ำ
+ *
+ * ไม่ใช้ "ยอดตรงกัน" เป็นเงื่อนไข เพราะใบที่อ่านดีแต่มีบรรทัดเดียวเพี้ยน
+ * ก็ยอดไม่ตรงแล้ว ถ้าเอามาเป็นเงื่อนไขจะอ่านซ้ำแทบทุกใบโดยไม่ได้อะไร
+ * ใช้เกณฑ์เดียวกับที่ใช้ตัดสินว่าจะเตือนผู้ใช้หรือไม่
+ */
+function convincing(parsed: ParsedReceipt): boolean {
+  return parsed.confidence >= MIN_CONFIDENCE && parsed.items.length >= ENOUGH_ITEMS;
+}
+
+/**
+ * ให้คะแนนผลการอ่าน ไว้เลือกระหว่างสองรอบ
+ *
+ * "ยอดตรงกัน" เป็นสัญญาณที่หนักที่สุด แต่เชื่อเดี่ยวๆ ไม่ได้
+ * เพราะผลที่อ่านได้รายการเดียวจะตรงกับตัวมันเองเสมอ ซึ่งแปลว่าอ่านพลาด ไม่ใช่อ่านดี
+ * จึงนับให้เฉพาะตอนมีรายการมากพอ แล้วใช้จำนวนรายการเป็นตัวตัดสินรองลงมา
+ */
+export function scoreParse(parsed: ParsedReceipt): number {
+  const reconciled = parsed.reconciled && parsed.items.length >= ENOUGH_ITEMS ? 1000 : 0;
+  return reconciled + Math.min(parsed.items.length, 30) * 10 + parsed.confidence / 10;
+}
+
+/** กรอบครอบตัดเป็นพิกเซล พร้อมบอกว่ามันคือทั้งรูปหรือเปล่า */
+async function pixelBoxFor(image: Blob, crop?: CropRect): Promise<PixelBox & { whole: boolean }> {
+  const bitmap = await createImageBitmap(image);
+  try {
+    if (isFullCrop(crop) || !crop) {
+      return { left: 0, top: 0, width: bitmap.width, height: bitmap.height, whole: true };
+    }
+    return { ...toPixels(crop, bitmap.width, bitmap.height), whole: false };
+  } finally {
+    bitmap.close();
+  }
 }
 
 /**
