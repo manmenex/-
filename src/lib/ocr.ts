@@ -173,23 +173,52 @@ async function rectangleFor(image: Blob, crop?: CropRect) {
 export async function readReceipt(image: Blob, crop?: CropRect): Promise<ParsedReceipt> {
   const worker = await getWorker('receipt');
   const box = await pixelBoxFor(image, crop);
-  const first = await readOnce(worker, image, box, false);
-  if (convincing(first)) return first;
+
+  let best = await readOnce(worker, image, box, false, PAGE_MODES[0]);
+  if (settled(best)) return best;
 
   /**
-   * รอบแรกยังไม่ถึงเกณฑ์ที่จะเอาไปติ๊กให้ ลองใหม่กับรูปขาวดำ
+   * ยอดยังไม่ตรง ลองโหมดแบ่งหน้าอื่น
    *
-   * ช่วยได้บ้างกับรูปที่ถ่ายมืด แต่ทำรูปที่ถ่ายมาดีอยู่แล้วแย่ลงชัดเจน
-   * จึงไม่เอามาเป็นทางหลัก และไม่เชื่อรอบสองทันที
-   * เอาสองผลมาให้คะแนนเทียบกันแล้วเลือกอันที่ดีกว่า
+   * วัดจากใบจริงสองใบ ไม่มีโหมดไหนดีที่สุดกับทั้งคู่:
+   * ใบ Thong-Urai โหมด 4 ได้ 5 รายการยอดตรง ส่วนโหมดเดิมได้ 7 รายการยอดไม่ตรง
+   * ใบ Day by Day โหมด 4 กลับเหลือ 2 รายการ แต่โหมด 11 ได้ครบ 11 ยอดตรง
+   * จึงลองทีละโหมดแล้วให้คะแนนเทียบกัน ไม่ได้เลือกโหมดใดโหมดหนึ่งตายตัว
    */
-  try {
-    const second = await readOnce(worker, image, box, true);
-    return scoreParse(second) > scoreParse(first) ? second : first;
-  } catch {
-    // เครื่องไหนทำ canvas ไม่ได้ ก็ใช้ผลรอบแรกไปตามเดิม ดีกว่าไม่ได้อะไรเลย
-    return first;
+  for (const mode of PAGE_MODES.slice(1)) {
+    const next = await readOnce(worker, image, box, false, mode);
+    if (scoreParse(next) > scoreParse(best)) best = next;
+    if (settled(best)) return best;
   }
+
+  /**
+   * ยังไม่ได้เรื่อง และอ่านมาไม่ชัดด้วย ลองรูปขาวดำเป็นไม้สุดท้าย
+   * ไม่เอามาเป็นทางหลักเพราะวัดแล้วมันทำรูปที่ถ่ายมาดีแย่ลงชัดเจน
+   */
+  if (best.confidence < MIN_CONFIDENCE) {
+    try {
+      const binarized = await readOnce(worker, image, box, true, PAGE_MODES[0]);
+      if (scoreParse(binarized) > scoreParse(best)) best = binarized;
+    } catch {
+      // เครื่องไหนทำ canvas ไม่ได้ ก็ใช้ผลที่มีอยู่ ดีกว่าไม่ได้อะไรเลย
+    }
+  }
+
+  return best;
+}
+
+/**
+ * โหมดแบ่งหน้าที่จะไล่ลอง เรียงตามลำดับที่ใช้
+ *
+ * 6 = ถือทั้งรูปเป็นบล็อกข้อความเดียว (ค่าที่ใช้มาตลอด ตั้งไว้ชัดๆ จะได้ไม่ขึ้นกับค่าตั้งต้นของตัวอ่าน)
+ * 4 = คอลัมน์เดียวที่ตัวอักษรขนาดไม่เท่ากัน
+ * 11 = ข้อความกระจายเป็นหย่อมๆ ไม่เป็นย่อหน้า
+ */
+const PAGE_MODES = ['6', '4', '11'] as const;
+
+/** ได้ผลที่ดีพอจะหยุดหาแล้ว ไม่ต้องเสียเวลาอ่านซ้ำอีก */
+function settled(parsed: ParsedReceipt): boolean {
+  return convincing(parsed) && parsed.reconciled;
 }
 
 /**
@@ -203,9 +232,11 @@ async function readOnce(
   image: Blob,
   box: PixelBox & { whole: boolean },
   binarize: boolean,
+  mode: (typeof PAGE_MODES)[number],
 ): Promise<ParsedReceipt> {
   const asIs = !binarize && box.whole && scaleForOcr(box.width, box.height) === 1;
   const source = asIs ? image : await prepareForOcr(image, box, binarize);
+  await worker.setParameters({ tessedit_pageseg_mode: mode as never });
   const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
   return parseReceipt(linesOf(data));
 }

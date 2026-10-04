@@ -307,7 +307,8 @@ export function ReceiptScanner({
         </button>
         {state === 'working' && (
           <p className="mt-1 text-2xs text-ink-faint">
-            ครั้งแรกต้องโหลดตัวอ่านภาษาไทยก่อน อาจนานสักหน่อย ครั้งต่อไปจะเร็วขึ้น
+            ครั้งแรกต้องโหลดตัวอ่านภาษาไทยก่อน และถ้ายอดยังบวกไม่ตรง
+            จะลองอ่านด้วยวิธีอื่นให้อีกสองสามรอบ
           </p>
         )}
         {error && <p className="mt-2 text-2xs text-owed">{error}</p>}

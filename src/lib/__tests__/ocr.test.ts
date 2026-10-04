@@ -128,6 +128,22 @@ describe('scoreParse', () => {
     expect(scoreParse(binarized)).toBeGreaterThan(scoreParse(dark));
   });
 
+  /**
+   * ตัวเลขจากการวัดจริง ใบ Thong-Urai ผ่านโหมดแบ่งหน้าสองแบบ
+   * โหมดเดิมได้ 7 รายการแต่ยอดไม่ตรง โหมด 4 ได้ 5 รายการพอดีและยอดตรง
+   * ของน้อยกว่าแต่ถูกต้อง ต้องชนะของเยอะกว่าที่บวกแล้วไม่ตรง
+   */
+  it('เลือกผลที่ยอดตรง แม้จะได้รายการน้อยกว่า', () => {
+    const mode6 = parse(7, false, 88);
+    const mode4 = parse(5, true, 88);
+    expect(scoreParse(mode4)).toBeGreaterThan(scoreParse(mode6));
+  });
+
+  /** ใบ Day by Day: จำนวนรายการเท่ากัน ต่างกันแค่ยอดตรงหรือไม่ */
+  it('จำนวนรายการเท่ากัน ให้ผลที่ยอดตรงชนะ', () => {
+    expect(scoreParse(parse(11, true, 92))).toBeGreaterThan(scoreParse(parse(11, false, 90)));
+  });
+
   it('ยอดตรงกันชนะ ถ้ามีรายการมากพอจนเชื่อได้', () => {
     expect(scoreParse(parse(5, true, 70))).toBeGreaterThan(scoreParse(parse(8, false, 90)));
   });
