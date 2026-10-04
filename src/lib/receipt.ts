@@ -126,7 +126,21 @@ interface Columns {
   amount: number;
   /** ขอบขวาของคอลัมน์ราคาต่อหน่วย ถ้ามี */
   unitPrice?: number;
+  /** ขอบขวาของคอลัมน์จำนวนที่สั่ง ถ้าตรวจแล้วว่ามีจริง */
+  quantity?: number;
 }
+
+/** เลขจำนวนเต็มโดดๆ ไม่มีทศนิยม = ผู้สมัครเป็นคอลัมน์จำนวน */
+const COUNT_WORD = /^\d{1,2}$/;
+
+/** คอลัมน์จำนวนต้องโผล่ในรายการมากกว่าสัดส่วนนี้ จึงจะเชื่อว่าเป็นคอลัมน์จริง */
+const COUNT_COVERAGE = 0.7;
+
+/** และต้องหารยอดลงตัวมากกว่าสัดส่วนนี้ ของบรรทัดที่มันโผล่ */
+const COUNT_DIVIDES = 0.8;
+
+/** น้อยกว่านี้ไม่พอจะสรุปว่าเป็นคอลัมน์ เป็นแค่เลขที่บังเอิญอยู่ตรงนั้น */
+const COUNT_MIN_ROWS = 3;
 
 /** คำที่อยู่ในคอลัมน์เดียวกันต่างกันได้ไม่เกินนี้ (พิกเซล) */
 const COLUMN_TOLERANCE = 45;
@@ -185,6 +199,61 @@ function amountIn(line: ReceiptLine, column: number): Money | null {
   return null;
 }
 
+/** อ่านเลขจำนวนเต็มที่อยู่ในคอลัมน์นั้น */
+function countIn(line: ReceiptLine, column: number): number | null {
+  for (const word of line.words ?? []) {
+    if (Math.abs(word.x1 - column) > COLUMN_TOLERANCE) continue;
+    if (!COUNT_WORD.test(word.text)) continue;
+    const value = Number(word.text);
+    if (value > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * หาคอลัมน์จำนวนที่สั่ง โดยดูทั้งใบก่อนจะเชื่อ
+ *
+ * layout ใบเสร็จต่างกันไปเรื่อย บางใบวางจำนวนไว้ซ้ายสุด ("3 Matcha 195.00")
+ * บางใบไว้กลางคู่กับราคาต่อหน่วย และบางใบเลขซ้ายสุดคือ "ลำดับที่" ไม่ใช่จำนวน
+ * จึงไม่เดาจากบรรทัดเดียว แต่ดูว่ามีเลขเรียงตรงกันเป็นคอลัมน์ทั้งใบหรือเปล่า
+ * แล้วตรวจต่อว่ามันหารยอดลงตัว และไม่ได้ไล่ 1,2,3 แบบลำดับที่
+ */
+function detectQuantityColumn(rows: Row[], columns: Columns): number | undefined {
+  // ไม่ต้องกันจำนวนบรรทัดขั้นต่ำตรงนี้ looksLikeCounts กันให้แล้ว
+  const itemRows = rows.filter(isItemRow);
+  const taken = [columns.amount, columns.unitPrice].filter((x): x is number => x !== undefined);
+  const spots: number[] = [];
+  for (const row of itemRows) {
+    for (const word of row.line.words ?? []) {
+      if (!COUNT_WORD.test(word.text)) continue;
+      if (taken.some((column) => Math.abs(word.x1 - column) <= COLUMN_TOLERANCE)) continue;
+      spots.push(word.x1);
+    }
+  }
+
+  const candidates = clusterPositions(spots).sort((a, b) => b.count - a.count);
+  for (const candidate of candidates) {
+    const values = itemRows.map((row) => countIn(row.line, candidate.center));
+    if (looksLikeCounts(values, itemRows.map((row) => row.amount))) return candidate.center;
+  }
+  return undefined;
+}
+
+/** เลขชุดนี้เป็น "จำนวนที่สั่ง" จริงไหม หรือเป็นลำดับที่/เลขอื่นที่บังเอิญอยู่ตรงนั้น */
+function looksLikeCounts(values: (number | null)[], amounts: Money[]): boolean {
+  const present = values.filter((value): value is number => value !== null && value > 0);
+  if (present.length < COUNT_MIN_ROWS) return false;
+  if (present.length / values.length < COUNT_COVERAGE) return false;
+
+  // ไล่ 1,2,3,... คือลำดับที่ ไม่ใช่จำนวนสั่ง
+  if (present.every((value, index) => value === index + 1)) return false;
+
+  const divides = values.filter(
+    (value, index) => value !== null && value > 0 && amounts[index] % value === 0,
+  ).length;
+  return divides / present.length >= COUNT_DIVIDES;
+}
+
 interface Row {
   line: ReceiptLine;
   amount: Money;
@@ -206,22 +275,26 @@ function parseByColumn(lines: ReceiptLine[], columns: Columns): ParsedReceipt {
   const result: ParsedReceipt = { items: [], reconciled: false, confidence: 0 };
   if (rows.length === 0) return result;
 
-  const split = findSubtotalSplit(rows, (row) => nameFrom(row.line, columns));
+  // ต้องรู้ก่อนว่าคอลัมน์จำนวนอยู่ตรงไหน ชื่อรายการจะได้ไม่เอาเลขจำนวนไปด้วย
+  const withCount: Columns = { ...columns, quantity: detectQuantityColumn(rows, columns) };
+
+  const split = findSubtotalSplit(rows, (row) => nameFrom(row.line, withCount));
   const hasSplit = split !== null;
   const itemRows = hasSplit ? rows.slice(0, split) : rows.filter(isItemRow);
   // หาจุดตัดไม่เจอก็ยังต้องอ่านบรรทัดสรุป ไม่งั้นยอดบนใบเสร็จหายไปเฉยๆ
   const restRows = hasSplit ? rows.slice(split) : rows.filter((row) => !isItemRow(row));
 
   for (const row of itemRows) {
-    const label = nameFrom(row.line, columns);
+    const label = nameFrom(row.line, withCount);
     if (!label || row.amount <= 0) continue;
-    result.items.push(toItem(label, row.amount, row.unitPrice));
+    const counted = withCount.quantity === undefined ? null : countIn(row.line, withCount.quantity);
+    result.items.push(toItem(label, row.amount, row.unitPrice, counted));
   }
 
   let subtotal: Money | undefined;
   let netTotal: Money | undefined;
   for (const [index, row] of restRows.entries()) {
-    const kind = classify(nameFrom(row.line, columns));
+    const kind = classify(nameFrom(row.line, withCount));
     const value = Math.abs(row.amount);
     // แถวแรกหลังจุดตัดคือยอดรวมรายการ ต่อให้ OCR อ่านคำว่า "รวม" เพี้ยนไปก็ตาม
     // เชื่อได้เฉพาะตอนมีจุดตัดจริง ไม่มีจุดตัดก็ต้องให้คำขึ้นต้นบอกเท่านั้น
@@ -306,7 +379,11 @@ function isItemRow(row: Row): boolean {
 function nameFrom(line: ReceiptLine, columns: Columns): string {
   // คอลัมน์เก็บเป็นขอบขวา ตัวเลขกว้างได้ถึงราวครึ่งหนึ่งของ tolerance จึงเผื่อไว้
   const limit = (columns.unitPrice ?? columns.amount) - COLUMN_TOLERANCE * 4;
-  const words = (line.words ?? []).filter((word) => word.x1 < limit);
+  const words = (line.words ?? []).filter(
+    (word) =>
+      word.x1 < limit &&
+      !(columns.quantity !== undefined && Math.abs(word.x1 - columns.quantity) <= COLUMN_TOLERANCE),
+  );
   return words.length > 0 ? joinWords(words) : collapse(line.text);
 }
 
@@ -360,16 +437,17 @@ export function cleanName(text: string): string {
  * ใบเสร็จร้านอาหารหลายเจ้าวางคอลัมน์จำนวนไว้ซ้ายสุด ไม่ใช่ขวาแบบใบกำกับภาษี
  * ของเดิมโยนเลขนั้นทิ้งไปกับขยะนำหน้า จำนวนชิ้นจึงเป็น 1 หมดทั้งบิล
  */
-export function stripLeadingQuantity(text: string): { name: string; quantity: number } {
+export function stripLeadingQuantity(text: string): { name: string; quantity: number | null } {
   let tokens = collapse(text).split(' ').filter(Boolean);
 
   // ตัดทุกอย่างถึงรหัสสินค้า ถ้ามันโผล่มาในสามคำแรก
   const codeAt = tokens.slice(0, 3).findIndex((token) => /^\d{5,}$/.test(token));
   if (codeAt >= 0) tokens = tokens.slice(codeAt + 1);
 
-  let quantity = 1;
-  // เลขตัวแรกที่เป็นจำนวนเต็มสั้นๆ และมีชื่อตามมา = คอลัมน์จำนวน
-  if (tokens.length >= 2 && /^\d{1,2}$/.test(tokens[0]) && /\p{L}/u.test(tokens.slice(1).join(''))) {
+  let quantity: number | null = null;
+  // เลขตัวแรกที่เป็นจำนวนเต็มสั้นๆ และมีชื่อตามมา อาจเป็นคอลัมน์จำนวน
+  // ยังไม่เชื่อตรงนี้ คนเรียกต้องเอาไปตรวจกับทั้งใบก่อน
+  if (tokens.length >= 2 && COUNT_WORD.test(tokens[0]) && /\p{L}/u.test(tokens.slice(1).join(''))) {
     quantity = Number(tokens[0]);
     tokens = tokens.slice(1);
   }
@@ -384,6 +462,7 @@ export function stripLeadingQuantity(text: string): { name: string; quantity: nu
 
 function parseByText(lines: ReceiptLine[]): ParsedReceipt {
   const result: ParsedReceipt = { items: [], reconciled: false, confidence: 0 };
+  const candidates: { label: string; amount: Money }[] = [];
   let netTotal: Money | undefined;
   let subTotal: Money | undefined;
   let sawSummary = false;
@@ -412,8 +491,21 @@ function parseByText(lines: ReceiptLine[]): ParsedReceipt {
     if (HEADER_HINTS.test(text)) continue;
     if (sawSummary) continue;
 
-    result.items.push(toItem(label, amount, null));
+    candidates.push({ label, amount });
   }
+
+  /**
+   * ไม่มีพิกัดคำให้ดูว่าเลขเรียงเป็นคอลัมน์ไหม ใช้เลขนำหน้าชื่อแทน
+   * แต่ยังต้องผ่านเกณฑ์เดียวกัน ไม่งั้นใบที่ขึ้นต้นด้วยลำดับที่จะถูกหารราคาผิด
+   */
+  const leading = candidates.map((entry) => stripLeadingQuantity(entry.label).quantity);
+  const trusted = looksLikeCounts(
+    leading,
+    candidates.map((entry) => entry.amount),
+  );
+  result.items = candidates.map((entry, index) =>
+    toItem(entry.label, entry.amount, null, trusted ? leading[index] : null),
+  );
 
   result.total = netTotal ?? subTotal;
   const itemsTotal = sum(result.items.map((item) => item.lineTotal));
@@ -426,10 +518,20 @@ function parseByText(lines: ReceiptLine[]): ParsedReceipt {
 
 // ── ตัวช่วย ───────────────────────────────────────────────────────────────
 
-function toItem(label: string, lineTotal: Money, unitPrice: Money | null): ReceiptItem {
+/**
+ * @param counted จำนวนที่ตรวจแล้วว่ามาจากคอลัมน์จำนวนจริง ไม่ใช่เลขที่เดาจากบรรทัดเดียว
+ */
+function toItem(
+  label: string,
+  lineTotal: Money,
+  unitPrice: Money | null,
+  counted: number | null = null,
+): ReceiptItem {
+  // ชื่อต้องตัดเลขนำหน้าทิ้งเสมอ แต่จะเชื่อว่าเลขนั้นคือจำนวนก็ต่อเมื่อตรวจทั้งใบแล้ว
   const lead = stripLeadingQuantity(label);
+  const fromText = splitQuantity(lead.name);
   const { name, quantity } =
-    lead.quantity > 1 ? { name: lead.name, quantity: lead.quantity } : splitQuantity(lead.name);
+    counted !== null ? { name: lead.name, quantity: counted } : fromText;
 
   /**
    * มีคอลัมน์ราคาต่อหน่วยให้ดู ใช้ตัวนั้นหาจำนวนชิ้นแทนการอ่านจากชื่อ

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { MIN_CONFIDENCE, parseReceipt, type ReceiptLine } from '../receipt';
+import {
+  MIN_CONFIDENCE,
+  parseReceipt,
+  type ReceiptLine,
+  type ReceiptWord,
+} from '../receipt';
 import vetReceipt from './fixtures/vet-receipt.json';
 import dayByDayReceipt from './fixtures/daybyday-receipt.json';
 import { B } from '../../core/__tests__/factories';
@@ -333,5 +338,156 @@ describe('ใบเสร็จ Day by Day (คอลัมน์จำนวน
    */
   it('บอกว่าไม่ตรงกัน เมื่อบรรทัดที่ OCR อ่านทศนิยมหายทำให้ผลรวมเพี้ยน', () => {
     expect(parsed.reconciled).toBe(false);
+  });
+});
+
+/**
+ * layout ใบเสร็จต่างกันไปเรื่อย คอลัมน์จำนวนอยู่ซ้ายบ้างขวาบ้าง
+ * บางใบเลขซ้ายสุดคือ "ลำดับที่" ไม่ใช่จำนวน ถ้าเชื่อผิดราคาจะโดนหารผิดทั้งบิล
+ * ชุดนี้จึงประกอบพิกัดคำขึ้นมาเอง เพื่อลองแต่ละ layout ให้ครบ
+ */
+describe('layout ที่ต่างกันของคอลัมน์จำนวน', () => {
+  /** คำหนึ่งคำ กว้างประมาณ 12px ต่อตัวอักษร ชิดขวาที่ x1 */
+  const word = (text: string, x1: number): ReceiptWord => ({
+    text,
+    x0: x1 - 12 * [...text].length,
+    x1,
+  });
+
+  const sheet = (rows: [number, [string, number][]][]): ReceiptLine[] =>
+    rows.map(([y, cells]) => ({
+      text: cells.map(([text]) => text).join(' '),
+      y,
+      words: cells.map(([text, x1]) => word(text, x1)),
+    }));
+
+  it('ไม่เอาลำดับที่มาเป็นจำนวน แม้มันจะหารยอดลงตัวทุกบรรทัด', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['1', 120], ['ข้าวผัด', 400], ['100.00', 800]]],
+        [140, [['2', 120], ['ต้มยำ', 400], ['200.00', 800]]],
+        [180, [['3', 120], ['ผัดไทย', 400], ['300.00', 800]]],
+        [220, [['4', 120], ['ส้มตำ', 400], ['400.00', 800]]],
+        [280, [['รวม', 400], ['1,000.00', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.quantity)).toEqual([1, 1, 1, 1]);
+    expect(parsed.items.map((item) => item.lineTotal)).toEqual([B(100), B(200), B(300), B(400)]);
+    expect(parsed.total).toBe(B(1000));
+  });
+
+  it('เอาคอลัมน์จำนวนที่ไม่ได้ไล่เรียงมาใช้ แล้วหารราคาต่อชิ้นให้', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['2', 120], ['ข้าวผัด', 400], ['100.00', 800]]],
+        [140, [['1', 120], ['ต้มยำ', 400], ['50.00', 800]]],
+        [180, [['3', 120], ['ผัดไทย', 400], ['150.00', 800]]],
+        [220, [['1', 120], ['ส้มตำ', 400], ['50.00', 800]]],
+        [280, [['รวม', 400], ['350.00', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.quantity)).toEqual([2, 1, 3, 1]);
+    expect(parsed.items.map((item) => item.unitPrice)).toEqual([B(50), B(50), B(50), B(50)]);
+    expect(parsed.items.map((item) => item.name)).toEqual([
+      'ข้าวผัด',
+      'ต้มยำ',
+      'ผัดไทย',
+      'ส้มตำ',
+    ]);
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  it('ไม่มีคอลัมน์จำนวน ก็นับเป็นชิ้นเดียวทุกรายการ', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['ข้าวผัด', 400], ['100.00', 800]]],
+        [140, [['ต้มยำ', 400], ['50.00', 800]]],
+        [180, [['ผัดไทย', 400], ['150.00', 800]]],
+        [240, [['รวม', 400], ['300.00', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.quantity)).toEqual([1, 1, 1]);
+    expect(parsed.items.map((item) => item.lineTotal)).toEqual([B(100), B(50), B(150)]);
+  });
+
+  /** จำนวนอยู่ขวาคู่กับราคาต่อหน่วย แบบใบกำกับภาษี — เลขฝั่งซ้ายคือรหัสสินค้า */
+  it('ใช้ราคาต่อหน่วยหาจำนวน ไม่ไปหยิบรหัสสินค้าทางซ้ายมาใช้', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['12', 120], ['ข้าวผัด', 400], ['50.00', 700], ['150.00', 900]]],
+        [140, [['34', 120], ['ต้มยำ', 400], ['25.00', 700], ['50.00', 900]]],
+        [180, [['56', 120], ['ผัดไทย', 400], ['40.00', 700], ['80.00', 900]]],
+        [240, [['รวม', 400], ['280.00', 900]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.quantity)).toEqual([3, 2, 2]);
+    expect(parsed.items.map((item) => item.unitPrice)).toEqual([B(50), B(25), B(40)]);
+  });
+
+  /** OCR แถมเลขขยะมาซ้ายมือบางบรรทัด ไม่ใช่ทั้งใบ = ไม่ใช่คอลัมน์ */
+  it('ไม่เชื่อเลขที่โผล่มาไม่ครบทั้งใบ แม้มันจะหารยอดลงตัว', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['2', 120], ['ข้าวผัด', 400], ['100.00', 800]]],
+        [140, [['2', 120], ['ต้มยำ', 400], ['200.00', 800]]],
+        [180, [['2', 120], ['ผัดไทย', 400], ['300.00', 800]]],
+        [220, [['ส้มตำ', 400], ['50.00', 800]]],
+        [260, [['ยำวุ้นเส้น', 400], ['50.00', 800]]],
+        [320, [['รวม', 400], ['700.00', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.quantity)).toEqual([1, 1, 1, 1, 1]);
+    expect(parsed.items[0].unitPrice).toBe(B(100));
+  });
+
+  /**
+   * มีเลขเรียงเป็นคอลัมน์สองชุด: เลขโต๊ะทางซ้าย กับจำนวนจริงถัดมา
+   * ต้องเลือกชุดที่หารยอดลงตัว ไม่ใช่ชุดที่เจอก่อน
+   */
+  it('เลือกคอลัมน์ที่หารยอดลงตัว ไม่ใช่เลขโต๊ะที่อยู่ซ้ายกว่า', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['7', 120], ['2', 260], ['ข้าวผัด', 500], ['100.00', 800]]],
+        [140, [['7', 120], ['1', 260], ['ต้มยำ', 500], ['50.00', 800]]],
+        [180, [['7', 120], ['3', 260], ['ผัดไทย', 500], ['150.00', 800]]],
+        [240, [['รวม', 500], ['300.00', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.quantity)).toEqual([2, 1, 3]);
+    expect(parsed.items.map((item) => item.unitPrice)).toEqual([B(50), B(50), B(50)]);
+    expect(parsed.items.map((item) => item.name)).toEqual(['ข้าวผัด', 'ต้มยำ', 'ผัดไทย']);
+  });
+
+  /**
+   * บิลสองรายการแยกไม่ออกว่าเลขนำหน้าคือจำนวนหรือลำดับที่
+   * เลือกทางที่ยอดรวมไม่เพี้ยน: นับเป็นชิ้นเดียว ราคาเต็มทั้งบรรทัด
+   */
+  it('รายการน้อยเกินกว่าจะสรุปว่าเป็นคอลัมน์ ก็ไม่เดา', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['2', 120], ['ข้าวผัด', 400], ['100.00', 800]]],
+        [140, [['1', 120], ['ต้มยำ', 400], ['50.00', 800]]],
+        [200, [['รวม', 400], ['150.00', 800]]],
+      ]),
+    );
+    expect(parsed.items.map((item) => item.quantity)).toEqual([1, 1]);
+    expect(parsed.items.map((item) => item.lineTotal)).toEqual([B(100), B(50)]);
+    expect(parsed.items.map((item) => item.name)).toEqual(['ข้าวผัด', 'ต้มยำ']);
+    expect(parsed.total).toBe(B(150));
+  });
+
+  /** ตัวเลขชิดขวา ขอบซ้ายจึงไม่ตรงกัน ห้ามแตกเป็นสองคอลัมน์ */
+  it('จับเป็นคอลัมน์เดียว แม้ตัวเลขจะยาวไม่เท่ากัน', () => {
+    const parsed = parseReceipt(
+      sheet([
+        [100, [['ข้าวผัด', 400], ['1,250.00', 800]]],
+        [140, [['ต้มยำ', 400], ['80.00', 800]]],
+        [180, [['ผัดไทย', 400], ['9.00', 800]]],
+        [240, [['รวม', 400], ['1,339.00', 800]]],
+      ]),
+    );
+    expect(parsed.items).toHaveLength(3);
+    expect(parsed.total).toBe(B(1339));
+    expect(parsed.reconciled).toBe(true);
   });
 });
