@@ -1,4 +1,6 @@
 import { sauvola, toGray, toRgba } from './binarize';
+import { detectPaper, searchSize, worthCropping } from './paperEdge';
+import type { CropRect } from './crop';
 
 /**
  * image.ts — ย่อรูปที่ถ่ายมาก่อนเก็บ
@@ -81,6 +83,33 @@ function toBlob(
   type = 'image/jpeg',
 ): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+/**
+ * เสนอกรอบครอบตัดจากขอบกระดาษที่หาเจอในรูป
+ *
+ * คืน null เมื่อหาไม่เจอหรือกรอบเกือบเท่าทั้งรูป คนเรียกจะได้ปล่อยไว้ตามเดิม
+ * ย่อรูปลงเหลือด้านยาว 200px ก่อนค้นหา เร็วพอจะทำทันทีที่เลือกรูป
+ */
+export async function suggestCrop(file: Blob): Promise<CropRect | null> {
+  const source = await decode(file);
+  try {
+    const size = searchSize(source.width, source.height);
+    if (size.width === 0 || size.height === 0) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+
+    context.drawImage(source, 0, 0, size.width, size.height);
+    const pixels = context.getImageData(0, 0, size.width, size.height);
+    const rect = detectPaper(pixels.data, size.width, size.height);
+    return worthCropping(rect) ? rect : null;
+  } finally {
+    if ('close' in source && typeof source.close === 'function') source.close();
+  }
 }
 
 /**
