@@ -357,11 +357,15 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     x1,
   });
 
-  const sheet = (rows: [number, [string, number][]][]): ReceiptLine[] =>
-    rows.map(([y, cells]) => ({
-      text: cells.map(([text]) => text).join(' '),
+  /**
+   * ข้อความบรรทัดระบุเองได้ เพราะ OCR ซอยภาษาไทยเป็นตัวๆ ในชั้น "คำ"
+   * แต่ข้อความของบรรทัดยังต่อกันเป็นคำปกติ ถ้าเอาคำมาต่อด้วยช่องว่างจะไม่ตรงของจริง
+   */
+  const sheet = (rows: [number, [string, number][], string?][]): ReceiptLine[] =>
+    rows.map(([y, cells, text]) => ({
+      text: text ?? cells.map(([cell]) => cell).join(' '),
       y,
-      words: cells.map(([text, x1]) => word(text, x1)),
+      words: cells.map(([cell, x1]) => word(cell, x1)),
     }));
 
   it('ไม่เอาลำดับที่มาเป็นจำนวน แม้มันจะหารยอดลงตัวทุกบรรทัด', () => {
@@ -544,6 +548,45 @@ describe('layout ที่ต่างกันของคอลัมน์จ
     expect(parsed.items).toHaveLength(3);
     expect(parsed.items.map((item) => item.lineTotal)).toEqual([B(100), B(50), B(150)]);
     expect(parsed.total).toBe(B(300));
+    expect(parsed.reconciled).toBe(true);
+  });
+
+  /**
+   * คอลัมน์จำนวนอยู่ซ้ายสุด และมีค่าบริการต่อท้าย
+   *
+   * เจอจากการวัดด้วยใบเสร็จสังเคราะห์ พิกัดในเทสนี้เอามาจากผลอ่านจริง
+   * OCR ซอยภาษาไทยเป็นตัวๆ ตัวอักษรกลางคำว่า "ค่าบริการ" จึงไปตกในช่วง
+   * คอลัมน์จำนวนพอดี ของเดิมตัดทุกคำที่อยู่ตรงนั้นทิ้ง เหลือแค่ "ค" กับ "10%"
+   * ค่าบริการเลยไม่ถูกนับ ได้ยอด 975 แทนที่จะเป็น 1,072.50
+   * แล้วยังบอกว่า "ตรงกัน" ด้วย เพราะทุกอย่างที่เหลือสอดคล้องกันเอง
+   */
+  it('ไม่ตัดชื่อบรรทัดค่าบริการทิ้ง ตอนคอลัมน์จำนวนอยู่ซ้ายสุด', () => {
+    /** OCR ซอยภาษาไทยเป็นตัวๆ ไม่ใช่เป็นคำ */
+    const thai = (text: string, from: number): [string, number][] =>
+      [...text].map((letter, index) => [letter, from + index * 13]);
+
+    const item = (y: number, quantity: string, name: string, amount: string): [number, [string, number][]] => [
+      y,
+      [[quantity, 95], [name, 320], [amount, 807]],
+    ];
+
+    const parsed = parseReceipt(
+      sheet([
+        item(157, '2', 'Peach Soda', '150.00'),
+        item(200, '1', 'Pure SUIKA', '80.00'),
+        item(241, '3', 'Chocolate Mint', '405.00'),
+        item(284, '2', 'Italian sausage', '240.00'),
+        item(330, '1', 'Cacao', '20.00'),
+        item(392, '1', 'Coconut Latte', '80.00'),
+        [468, [...thai('ยอดรวม', 45), ['975.00', 807]], 'ยอดรวม 975.00'],
+        [522, [...thai('ค่าบริการ', 45), ['10%', 198], ['97.50', 807]], 'ค่าบริการ 10% 97.50'],
+        [564, [...thai('ทั้งหมด', 41), ['1,072.50', 807]], 'ทั้งหมด 1,072.50'],
+      ]),
+    );
+
+    expect(parsed.items).toHaveLength(6);
+    expect(parsed.serviceCharge).toBe(B(97.5));
+    expect(parsed.total).toBe(B(1072.5));
     expect(parsed.reconciled).toBe(true);
   });
 

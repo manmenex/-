@@ -429,6 +429,19 @@ function isItemRow(row: Row): boolean {
 }
 
 /**
+ * คำนี้คือ "ตัวเลขในคอลัมน์จำนวน" หรือเปล่า
+ *
+ * ต้องเช็คว่าเป็นตัวเลขด้วย ไม่ใช่ตัดทุกคำที่บังเอิญอยู่ตรงตำแหน่งนั้น
+ * ใบที่วางคอลัมน์จำนวนไว้ซ้ายสุด คำว่า "ค่าบริการ" กับ "ส่วนลด" ก็เริ่มตรงนั้นพอดี
+ * ของเดิมตัดทิ้งไปด้วย ค่าธรรมเนียมเลยหายทั้งบรรทัด แล้วยอดผิดโดยไม่มีอะไรเตือน
+ */
+function isCountCell(word: ReceiptWord, columns: Columns): boolean {
+  if (columns.quantity === undefined) return false;
+  if (Math.abs(word.x1 - columns.quantity) > COLUMN_TOLERANCE) return false;
+  return COUNT_WORD.test(word.text);
+}
+
+/**
  * ข้อความในคอลัมน์รายการ = คำที่อยู่ซ้ายของคอลัมน์ตัวเลข
  *
  * คืนของดิบ ยังไม่ตัดรหัสสินค้าหรือจำนวนชิ้นออก เพราะคนเรียกต้องใช้ของดิบ:
@@ -437,11 +450,7 @@ function isItemRow(row: Row): boolean {
 function nameFrom(line: ReceiptLine, columns: Columns): string {
   // คอลัมน์เก็บเป็นขอบขวา ตัวเลขกว้างได้ถึงราวครึ่งหนึ่งของ tolerance จึงเผื่อไว้
   const limit = (columns.unitPrice ?? columns.amount) - COLUMN_TOLERANCE * 4;
-  const words = (line.words ?? []).filter(
-    (word) =>
-      word.x1 < limit &&
-      !(columns.quantity !== undefined && Math.abs(word.x1 - columns.quantity) <= COLUMN_TOLERANCE),
-  );
+  const words = (line.words ?? []).filter((word) => word.x1 < limit && !isCountCell(word, columns));
   return words.length > 0 ? joinWords(words) : collapse(line.text);
 }
 
